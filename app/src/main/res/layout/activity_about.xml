@@ -1,0 +1,42 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#fff"
+    tools:context="com.ublox.BLE.activities.AboutActivity">
+
+    <LinearLayout
+        android:padding="32dp"
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="About us"
+            android:textColor="@color/ublox_blue_color"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="16dp"
+            android:layout_weight="1"
+            android:text="Swiss u-blox (SIX:UBXN) is a global leader in positioning and wireless semiconductors and modules for the automotive, industrial and consumer markets. Our solutions enable people, vehicles and machines to locate their exact position and communicate wirelessly over cellular and short range networks. With a broad portfolio of chips, modules and software solutions, u-blox is uniquely positioned to empower OEMs to develop innovative solutions for the Internet of Things, quickly and cost-effectively. With headquarters in Thalwil, Switzerland, u-blox is globally present with offices in Europe, Asia and the USA.
+(www.u-blox.com)"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/bVisit"
+            android:textColor="@color/ublox_blue_color"
+            android:layout_marginTop="64dp"
+            android:text="VISIT US AT U-BLOX.COM"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
+
+
+
+</ScrollView>

@@ -1,0 +1,31 @@
+<resources>
+
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="android:Theme.Holo.Light">
+        <!-- Customize your theme here. -->
+        <item name="android:actionBarStyle">@style/UBLOXActionBar</item>
+        <item name="android:actionBarTabStyle">@style/UBLOXActionBarTabs</item>
+        <item name="android:actionBarTabTextStyle">@style/UBLOXActionBarTabsText</item>
+    </style>
+
+    <!-- ActionBar styles -->
+    <style name="UBLOXActionBar"
+        parent="@android:style/Widget.Holo.Light.ActionBar.Solid">
+        <item name="android:background">@color/white_color</item>
+        <item name="android:backgroundStacked">@color/ublox_blue_color</item>
+
+    </style>
+
+    <!-- ActionBar tabs styles -->
+    <style name="UBLOXActionBarTabs"
+        parent="@android:style/Widget.Holo.Light.ActionBar.TabView">
+        <!-- tab indicator -->
+        <item name="android:background">@drawable/actionbar_tab_indicator</item>
+
+    </style>
+
+    <style name="UBLOXActionBarTabsText" parent="@android:style/Widget.Holo.Light.ActionBar.TabText">
+        <item name="android:textColor">#fff</item>
+    </style>
+
+</resources>

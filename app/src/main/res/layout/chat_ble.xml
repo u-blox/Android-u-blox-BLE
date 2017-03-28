@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <TextView
+        android:layout_gravity="right"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:text="Message"
+        android:id="@+id/tvMessage" />
+
+    <LinearLayout
+        android:layout_gravity="right"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:textStyle="bold"
+            android:textColor="@color/ublox_blue_color"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:text="BLE"
+            android:id="@+id/textView2" />
+
+        <ImageView
+            android:src="@drawable/chat_bt"
+            android:layout_width="20sp"
+            android:layout_height="20sp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_gravity="right"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:text="2014-04-21 12:45:44"
+        android:id="@+id/tvDateTime" />
+
+</LinearLayout>
