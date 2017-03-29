@@ -5,7 +5,9 @@ https://www.u-blox.com/
 
 [Download APK](https://github.com/u-blox/Android-u-blox-BLE/releases/latest)
 
-These files are all working with Android Studio 2.3 and with Android 6.0 (Marshmallow) up to 7.1.1 (Nougat) (may very well work with newer versions but those are not released when this code was written).
+# 
+
+These files are all working with Android Studio 2.3 and with SDK version 21 (Android 5.0 - Lollipop).
 
 Needed files to get BLE working in your app:  
 ```
