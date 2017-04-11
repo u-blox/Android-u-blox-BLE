@@ -8,10 +8,10 @@ android {
     buildToolsVersion '25.0.2'
     defaultConfig {
         applicationId "com.ublox.BLE"
-        minSdkVersion 21
+        minSdkVersion 18
         targetSdkVersion 21
-        versionCode 8
-        versionName "2.5.0"
+        versionCode 9
+        versionName "2.5.1"
     }
     buildTypes {
         release {
