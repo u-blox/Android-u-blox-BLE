@@ -30,6 +30,10 @@ public class BLEQueue {
     }
 
     public void addNotification(BluetoothGattCharacteristic characteristic, boolean enabled) {
+        // Set write type to WRITE_TYPE_DEFAULT to fix an issue seen on some phone models and
+        // Android versions that enable notification with a write_command message instead of a
+        // write_request message (as specified by the Bluetooth specification).
+        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
         QueueItem queueItem = new QueueItem();
         queueItem.itemType = ITEM_TYPE_NOTIFICATION;
         queueItem.characteristic = characteristic;
