@@ -1,5 +1,6 @@
 package com.ublox.BLE.services;
 
+import android.annotation.TargetApi;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -16,11 +17,17 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
+import android.support.annotation.RequiresApi;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
+import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
+import com.ublox.BLE.interfaces.BluetoothGattRepresentation;
 import com.ublox.BLE.utils.BLEQueue;
 import com.ublox.BLE.utils.GattAttributes;
+import com.ublox.BLE.utils.PhyMode;
 import com.ublox.BLE.utils.QueueItem;
+import com.ublox.BLE.utils.UBloxDevice;
 
 import java.util.List;
 import java.util.UUID;
@@ -37,7 +44,11 @@ public class BluetoothLeService extends Service {
 
     private BluetoothAdapter mBluetoothAdapter;
     private String mBluetoothDeviceAddress;
-    private BluetoothGatt mBluetoothGatt;
+    private BluetoothGattRepresentation mBluetoothGatt;
+    private LocalBroadcastManager mLocalBroadcastManager;
+
+    private PhyMode txPhyMode = PhyMode.PHY_UNDEFINED;
+    private PhyMode rxPhyMode = PhyMode.PHY_UNDEFINED;
 
     private int mConnectionState = STATE_DISCONNECTED;
 
@@ -55,26 +66,39 @@ public class BluetoothLeService extends Service {
     public final static String ACTION_GATT_SERVICES_DISCOVERED = "com.ublox.BLE.ACTION_GATT_SERVICES_DISCOVERED";
     public final static String ACTION_DATA_AVAILABLE =           "com.ublox.BLE.ACTION_DATA_AVAILABLE";
     public final static String ACTION_RSSI_UPDATE =              "com.ublox.BLE.ACTION_RSSI_UPDATE";
+    public final static String ACTION_MTU_UPDATE =               "com.ublox.BLE.ACTION_MTU_UPDATE";
+    public final static String ACTION_PHY_MODE_AVAILABLE =       "com.ublox.BLE.ACTION_PHY_MODE_OBTAINED";
+    public final static String ACTION_DESCRIPTOR_WRITE =         "com.ublox.BLE.ACTION_DESCRIPTOR_WRITE";
 
 
-    public final static String EXTRA_TYPE = "com.ublox.BLE.EXTRA_TYPE";
-    public final static String EXTRA_UUID = "com.ublox.BLE.EXTRA_UUID";
-    public final static String EXTRA_DATA = "com.ublox.BLE.EXTRA_DATA";
-    public final static String EXTRA_RSSI = "com.ublox.BLE.EXTRA_RSSI";
+    public final static String EXTRA_TYPE =             "com.ublox.BLE.EXTRA_TYPE";
+    public final static String EXTRA_UUID =             "com.ublox.BLE.EXTRA_UUID";
+    public final static String EXTRA_DATA =             "com.ublox.BLE.EXTRA_DATA";
+    public final static String EXTRA_RSSI =             "com.ublox.BLE.EXTRA_RSSI";
+    public final static String EXTRA_MTU =              "com.ublox.BLE.EXTRA_MTU";
+    public final static String EXTRA_STATUS =           "com.ublox.BLE.EXTRA_STATUS";
+    public final static String EXTRA_IS_PHY_UPDATE =    "com.ublox.BLE.EXTRA_IS_PHY_UPDATE";
 
     // Implements callback methods for GATT events that the app cares about. For example,
     // connection change and services discovered.
     private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-
             String intentAction;
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 intentAction = ACTION_GATT_CONNECTED;
                 mConnectionState = STATE_CONNECTED;
                 broadcastUpdate(intentAction);
                 // Attempts to discover services after successful connection.
-                mBluetoothGatt.discoverServices();
+                if (mBluetoothGatt != null) {
+                    mBluetoothGatt.discoverServices();
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        if(mBluetoothAdapter.isLe2MPhySupported()) {
+                            mBluetoothGatt.readPhy();
+                        }
+                    }
+                }
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 intentAction = ACTION_GATT_DISCONNECTED;
                 mConnectionState = STATE_DISCONNECTED;
@@ -103,6 +127,9 @@ public class BluetoothLeService extends Service {
 
         @Override
         public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            if(GattAttributes.UUID_CHARACTERISTIC_FIFO.equals(descriptor.getCharacteristic().getUuid().toString())) {
+                broadcastUpdate(ACTION_DESCRIPTOR_WRITE);
+            }
             bleQueueIsFree = true;
             processQueue();
         }
@@ -110,7 +137,7 @@ public class BluetoothLeService extends Service {
         @Override
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS)
-                broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic, BLEQueue.ITEM_TYPE_READ);
+                broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic, BLEQueue.ITEM_TYPE_WRITE);
             bleQueueIsFree = true;
             processQueue();
         }
@@ -118,6 +145,32 @@ public class BluetoothLeService extends Service {
         @Override
         public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
             broadcastRssi(rssi);
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+            broadcastMtu(mtu, status);
+        }
+
+        @RequiresApi(26)
+        @Override
+        public void onPhyRead(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
+            updateModes(status, txPhy, rxPhy, false);
+        }
+
+        @RequiresApi(26)
+        @Override
+        public void onPhyUpdate(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
+            updateModes(status, txPhy, rxPhy, true);
+        }
+
+        @RequiresApi(26)
+        private void updateModes(int status, int txPhy, int rxPhy, boolean isUpdate) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                setTxPhyMode(txPhy);
+                setRxPhyMode(rxPhy);
+                broadcastPhyModeAvailable(isUpdate);
+            }
         }
     };
 
@@ -127,7 +180,7 @@ public class BluetoothLeService extends Service {
      */
     private void broadcastUpdate(final String action) {
         final Intent intent = new Intent(action);
-        sendBroadcast(intent);
+        mLocalBroadcastManager.sendBroadcast(intent);
     }
 
     /**
@@ -137,7 +190,21 @@ public class BluetoothLeService extends Service {
     private void broadcastRssi(int rssi) {
         Intent intent = new Intent(ACTION_RSSI_UPDATE);
         intent.putExtra(EXTRA_RSSI, rssi);
-        sendBroadcast(intent);
+        mLocalBroadcastManager.sendBroadcast(intent);
+    }
+
+    private void broadcastMtu(int mtu, int status) {
+        Intent intent = new Intent(ACTION_MTU_UPDATE);
+        intent.putExtra(EXTRA_MTU, mtu);
+        intent.putExtra(EXTRA_STATUS, status);
+        mLocalBroadcastManager.sendBroadcast(intent);
+    }
+
+    @RequiresApi(26)
+    private void broadcastPhyModeAvailable(boolean isUpdate) {
+        Intent intent = new Intent(ACTION_PHY_MODE_AVAILABLE);
+        intent.putExtra(EXTRA_IS_PHY_UPDATE, isUpdate);
+        mLocalBroadcastManager.sendBroadcast(intent);
     }
 
     /**
@@ -153,7 +220,11 @@ public class BluetoothLeService extends Service {
         intent.putExtra(EXTRA_DATA, characteristic.getValue());
         intent.putExtra(EXTRA_TYPE, itemType);
 
-        sendBroadcast(intent);
+        mLocalBroadcastManager.sendBroadcast(intent);
+    }
+
+    public BluetoothGattRepresentation getGatt() {
+        return mBluetoothGatt;
     }
 
     public class LocalBinder extends Binder {
@@ -174,9 +245,8 @@ public class BluetoothLeService extends Service {
         return super.onUnbind(intent);
     }
 
-
-
     public boolean initialize() {
+        mLocalBroadcastManager = LocalBroadcastManager.getInstance(getApplicationContext());
         if (mBluetoothManager == null) {
             mBluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
             if (mBluetoothManager == null) {
@@ -212,13 +282,15 @@ public class BluetoothLeService extends Service {
     /**
      * Connect to BLE device
      *
-     * @param address The device address of the destination device.
+     * @param device The device to connect
      *
      * @return Return true if the connection is initiated successfully.
      */
-    public boolean connect(final String address) {
+    public boolean connect(BluetoothDeviceRepresentation device) {
         // Init the request queue for this device
         bleQueue = new BLEQueue();
+        bleQueueIsFree = true;
+        String address = device.getAddress();
 
         // If the address or bluetoothadapter is null we cant connect
         if (mBluetoothAdapter == null || address == null) {
@@ -236,14 +308,23 @@ public class BluetoothLeService extends Service {
         }
 
         // Checks if we successfully connected
-        final BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
-        if (device == null) {
+        /*final BluetoothDevice rawDevice = mBluetoothAdapter.getRemoteDevice(address);
+        if (rawDevice == null) {
             return false;
         }
+        BluetoothDeviceRepresentation device = new UBloxDevice(rawDevice);*/
 
         // We want to directly connect to the device, so we are setting the autoConnect
         // parameter to false.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (mBluetoothAdapter.isLe2MPhySupported()) {
+                mBluetoothGatt = device.connectGatt(this, false, mGattCallback, TRANSPORT_LE,
+                        BluetoothDevice.PHY_LE_CODED_MASK ^ BluetoothDevice.PHY_LE_2M_MASK);
+            } else {
+                mBluetoothGatt = device.connectGatt(this, false, mGattCallback, TRANSPORT_LE,
+                        BluetoothDevice.PHY_LE_CODED_MASK ^ BluetoothDevice.PHY_LE_1M_MASK);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             mBluetoothGatt = device.connectGatt(this, false, mGattCallback, TRANSPORT_LE);
         } else {
             mBluetoothGatt = device.connectGatt(this, false, mGattCallback);
@@ -322,6 +403,22 @@ public class BluetoothLeService extends Service {
         processQueue();
     }
 
+    @TargetApi(26)
+    public void setPreferredPhy(PhyMode mode) {
+        switch (mode) {
+            case PHY_1M:
+                mBluetoothGatt.setPreferredPhy(BluetoothDevice.PHY_LE_1M_MASK,
+                        BluetoothDevice.PHY_LE_1M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED);
+                return;
+            case PHY_2M:
+                mBluetoothGatt.setPreferredPhy(BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED);
+                return;
+            default:
+                return;
+        }
+    }
+
     /**
      * Function that is handling the request queue.
      * To think about is that BLE on Android only can handle one request at the time.
@@ -333,21 +430,28 @@ public class BluetoothLeService extends Service {
             QueueItem queueItem = bleQueue.getNextItem();
             if (queueItem == null) {
                 bleQueueIsFree = true;
-                return;
             } else {
                 boolean status = false;
                 switch (queueItem.itemType) {
                     case BLEQueue.ITEM_TYPE_READ:
-                        status = mBluetoothGatt.readCharacteristic(queueItem.characteristic);
+                        if (mBluetoothGatt != null) {
+                            status = mBluetoothGatt.readCharacteristic(queueItem.characteristic);
+                        }
                         break;
                     case BLEQueue.ITEM_TYPE_WRITE:
-                        status = mBluetoothGatt.writeCharacteristic(queueItem.characteristic);
+                        if (mBluetoothGatt != null) {
+                            status = mBluetoothGatt.writeCharacteristic(queueItem.characteristic);
+                        }
                         break;
                     case BLEQueue.ITEM_TYPE_NOTIFICATION:
-                        mBluetoothGatt.setCharacteristicNotification(queueItem.characteristic, true);
                         BluetoothGattDescriptor descriptor = queueItem.characteristic.getDescriptor(UUID.fromString(GattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
-                        if (descriptor != null) {
-                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                        if (descriptor != null && mBluetoothGatt != null) {
+                            byte[] value = descriptor.getValue();
+                            if (value == BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) {
+                                mBluetoothGatt.setCharacteristicNotification(queueItem.characteristic, true);
+                            } else if (value == BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE) {
+                                mBluetoothGatt.setCharacteristicNotification(queueItem.characteristic, false);
+                            }
                             status = mBluetoothGatt.writeDescriptor(descriptor);
                         } else {
                             status = false;
@@ -371,5 +475,33 @@ public class BluetoothLeService extends Service {
         if (mBluetoothGatt == null) return null;
 
         return mBluetoothGatt.getServices();
+    }
+
+    public void mtuRequest(int size) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mBluetoothGatt != null) {
+            mBluetoothGatt.requestMtu(size);
+        }
+    }
+
+    public void connectionPrioRequest(int connectionParameter) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mBluetoothGatt != null) {
+            mBluetoothGatt.requestConnectionPriority(connectionParameter);
+        }
+    }
+
+    public PhyMode getTxPhyMode() {
+        return txPhyMode;
+    }
+
+    private void setTxPhyMode(int txPhy) {
+        this.txPhyMode = PhyMode.fromInteger(txPhy);
+    }
+
+    public PhyMode getRxPhyMode() {
+        return rxPhyMode;
+    }
+
+    private void setRxPhyMode(int rxPhy) {
+        this.rxPhyMode = PhyMode.fromInteger(rxPhy);
     }
 }

@@ -11,6 +11,11 @@
         android:title="@string/menu_stop"
         android:orderInCategory="101"
         android:showAsAction="always|withText"/>
+    <item android:id="@+id/menu_remote_control"
+        android:title="Remote"
+        android:orderInCategory="102"
+        android:singleLine="false"
+        android:showAsAction="always|withText"/>
     <item android:id="@+id/menu_about"
         android:orderInCategory="200"
         android:title="About"

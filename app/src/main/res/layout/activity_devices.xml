@@ -13,11 +13,4 @@
 
     </ListView>
 
-    <Button
-        android:id="@+id/bConnect"
-        android:layout_margin="16dp"
-        android:text="CONNECT"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
-
 </LinearLayout>

@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ublox.BLE">
-	<uses-permission android:name="android.permission.BLUETOOTH"/>
+
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+	<uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
 	<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 	<uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 	<application android:allowBackup="true" android:icon="@drawable/appicon" android:label="@string/app_name"
 		 android:theme="@style/AppTheme">
@@ -15,6 +19,5 @@
 		<activity android:name="com.ublox.BLE.activities.MainActivity" android:label="" android:screenOrientation="portrait"
 			 android:windowSoftInputMode="adjustResize|stateUnchanged"/>
 		<activity android:name="com.ublox.BLE.activities.AboutActivity" android:label="" android:screenOrientation="portrait"/>
-		<activity android:name=".activities.BasicBLEActivity" android:label="@string/title_activity_basic_ble"/>
 	</application>
 </manifest>

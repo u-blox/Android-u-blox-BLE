@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.ExpandableListView;
+import android.widget.ScrollView;
 import android.widget.SimpleExpandableListAdapter;
 import android.widget.TextView;
 
@@ -25,11 +26,12 @@ public class ServicesFragment extends Fragment {
     public interface IServiceFragmentInteraction {
         void onRead(BluetoothGattCharacteristic characteristic);
         void onWrite(BluetoothGattCharacteristic characteristic, byte[] value);
-        void onNotify(BluetoothGattCharacteristic characteristic);
+        void onNotify(BluetoothGattCharacteristic characteristic, boolean enabled);
     }
 
     private final String LIST_NAME = "NAME";
     private final String LIST_UUID = "UUID";
+    private ScrollView characteristicView;
 
     public static ServicesFragment newInstance() {
         ServicesFragment fragment = new ServicesFragment();
@@ -59,15 +61,25 @@ public class ServicesFragment extends Fragment {
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        characteristicView = view.findViewById(R.id.llCharacteristic);
+
         view.findViewById(R.id.bBack).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                view.findViewById(R.id.llCharacteristic).setVisibility(View.GONE);
+                backButtonPressed();
             }
         });
 
 
         mGattServicesList = (ExpandableListView) view.findViewById(R.id.gatt_services_list);
+    }
+
+    public boolean isCharacteristicViewVisible() {
+        return characteristicView.getVisibility() == View.VISIBLE;
+    }
+
+    public void backButtonPressed() {
+        characteristicView.setVisibility(View.GONE);
     }
 
     private ArrayList<ArrayList<BluetoothGattCharacteristic>> mGattCharacteristics = new ArrayList<ArrayList<BluetoothGattCharacteristic>>();
@@ -119,13 +131,13 @@ public class ServicesFragment extends Fragment {
         SimpleExpandableListAdapter gattServiceAdapter = new SimpleExpandableListAdapter(
                 getActivity(),
                 gattServiceData,
-                android.R.layout.simple_expandable_list_item_2,
+                R.layout.list_item_service,
                 new String[] {LIST_NAME, LIST_UUID},
-                new int[] { android.R.id.text1, android.R.id.text2 },
+                new int[] { R.id.name, R.id.uuid },
                 gattCharacteristicData,
-                android.R.layout.simple_expandable_list_item_2,
+                R.layout.list_item_service,
                 new String[] {LIST_NAME, LIST_UUID},
-                new int[] { android.R.id.text1, android.R.id.text2 }
+                new int[] { R.id.name, R.id.uuid }
         );
         mGattServicesList.setAdapter(gattServiceAdapter);
         mGattServicesList.setOnChildClickListener(servicesListClickListner);
@@ -154,7 +166,7 @@ public class ServicesFragment extends Fragment {
                         if ((charaProp & BluetoothGattCharacteristic.PROPERTY_NOTIFY) > 0) {
                             properties += " NOTIFY";
                             currentUuid = characteristic.getUuid().toString();
-                            mInteractionListener.onNotify(characteristic);
+                            mInteractionListener.onNotify(characteristic, true);
                         }
 
                         if ((charaProp & BluetoothGattCharacteristic.PROPERTY_WRITE) > 0) {

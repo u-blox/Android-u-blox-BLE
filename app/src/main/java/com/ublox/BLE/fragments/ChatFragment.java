@@ -104,10 +104,12 @@ public class ChatFragment extends Fragment {
                 this.characteristic = characteristic;
                 chatAdapter = new ChatAdapter(getActivity());
                 lvChat.setAdapter(chatAdapter);
+                mListener.onNotify(characteristic, true);
             } else if (!this.characteristic.equals(characteristic)) {
                 this.characteristic = characteristic;
                 chatAdapter = new ChatAdapter(getActivity());
                 lvChat.setAdapter(chatAdapter);
+                mListener.onNotify(characteristic, true);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -116,6 +118,7 @@ public class ChatFragment extends Fragment {
 
     public interface IChatInteractionListener {
         public void onSendMessage(BluetoothGattCharacteristic characteristic, byte[] message);
+        public void onNotify(BluetoothGattCharacteristic characteristic, boolean enabled);
     }
 
 }

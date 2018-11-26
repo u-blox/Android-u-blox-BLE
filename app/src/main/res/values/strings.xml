@@ -24,10 +24,39 @@
     <string name="title_section1">Overview</string>
     <string name="title_section2">Services</string>
     <string name="title_section3">Chat</string>
+    <string name="title_section4">Test</string>"
 
     <string name="overview_temperature">Temperature (°C)</string>
     <string name="title_activity_basic_ble">BasicBLEActivity</string>
 
     <string name="hello_world">Hello world!</string>
     <string name="action_settings">Settings</string>
+
+    <string name="bonded_state">bonded</string>
+    <string name="bonding_state">bonding</string>
+
+    <string name="status_disconnected">disconnected</string>
+    <string name="status_connecting">connecting...</string>
+    <string name="status_connected">gatt connected</string>
+    <string name="status_discovered">gatt connected, services discovered</string>
+    <string name="status_chat_available">chat available</string>
+    <string name="status_sps_available">sps available</string>
+    <string name="status_fifo_unavailable">fifo characteristc not found!</string>
+    <string name="status_fifo_credits_unavailable">credits and/or fifo characteristcs not found!</string>
+    <string name="not_available">N/A</string>
+    <string name="button_start">Start</string>
+    <string name="logs_tittle">Logs</string>
+    <string name="ip_address_tittle">IP Address</string>
+    <string name="port_tittle">Port</string>
+    <string name="port_hint">servers port</string>
+    <string name="remote_start_button">Stop</string>
+    <string name="remote_stop_button">Start</string>
+
+    <string-array name="conn_prio">
+        <item>BALANCED</item>
+        <item>HIGH</item>
+        <item>LOW POWER</item>
+    </string-array>
+    <string name="location_permission_toast">Location required to scan for low energy devices!</string>
+
 </resources>

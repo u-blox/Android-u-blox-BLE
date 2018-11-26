@@ -50,8 +50,6 @@ public class OverviewFragment extends Fragment {
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-
-
         sGreen = (Switch) view.findViewById(R.id.sGreenLight);
         sRed = (Switch) view.findViewById(R.id.sRedLight);
 
