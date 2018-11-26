@@ -7,7 +7,7 @@ https://www.u-blox.com/
 
 # 
 
-These files are all working with Android Studio 2.3 and with SDK version 21 (Android 5.0 - Lollipop).
+These files are all working with Android Studio 3.2.1 and with SDK version 28.
 
 Needed files to get BLE working in your app:  
 ```
