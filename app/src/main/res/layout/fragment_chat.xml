@@ -7,15 +7,31 @@
     android:background="#fff"
     tools:context="com.ublox.BLE.fragments.ChatFragment">
 
-    <ListView
-        android:id="@+id/lvChat"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:transcriptMode="alwaysScroll"
-        android:stackFromBottom="true"
-        android:layout_weight="1">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-    </ListView>
+        <Switch
+            android:id="@+id/swSendWithCR"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:layout_marginRight="8dp"
+            android:checked="false"
+            android:text="@string/send_with_cr" />
+
+        <ListView
+            android:id="@+id/lvChat"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:stackFromBottom="true"
+            android:transcriptMode="alwaysScroll">
+
+        </ListView>
+
+    </LinearLayout>
 
     <LinearLayout
         android:orientation="horizontal"

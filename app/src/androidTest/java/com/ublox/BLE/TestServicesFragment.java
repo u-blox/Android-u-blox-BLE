@@ -16,8 +16,6 @@ import static android.support.test.espresso.action.ViewActions.click;
 import static android.support.test.espresso.assertion.ViewAssertions.matches;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.espresso.matcher.ViewMatchers.withText;
-import static com.ublox.BLE.ConstantsForTests.MAP_KEY_NAME;
-import static com.ublox.BLE.ConstantsForTests.TAB_SERVICES;
 import static com.ublox.BLE.EspressoExtensions.withMapping;
 import static com.ublox.BLE.Wait.waitFor;
 import static org.hamcrest.Matchers.containsString;
@@ -31,7 +29,7 @@ public class TestServicesFragment {
     @Before
     public void setup() {
         waitFor(500);
-        onView(withText(TAB_SERVICES)).perform(click());
+        onView(withText("SERVICES")).perform(click());
     }
 
     @Test
@@ -50,11 +48,11 @@ public class TestServicesFragment {
     }
 
     private void assertService(String service, String gatt, String expected) {
-        onData(withMapping(MAP_KEY_NAME, service))
+        onData(withMapping("NAME", service))
             .inAdapterView(withId(R.id.gatt_services_list))
             .perform(click());
 
-        onData(withMapping(MAP_KEY_NAME, gatt))
+        onData(withMapping("NAME", gatt))
             .inAdapterView(withId(R.id.gatt_services_list))
             .perform(click());
 

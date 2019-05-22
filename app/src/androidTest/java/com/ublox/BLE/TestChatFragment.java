@@ -19,9 +19,6 @@ import static android.support.test.espresso.matcher.ViewMatchers.hasSibling;
 import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.espresso.matcher.ViewMatchers.withText;
-import static com.ublox.BLE.ConstantsForTests.MESSAGE;
-import static com.ublox.BLE.ConstantsForTests.TAB_CHAT;
-import static com.ublox.BLE.ConstantsForTests.TOAST_CHAT_DISCONNECTED;
 import static com.ublox.BLE.EspressoExtensions.onToast;
 import static com.ublox.BLE.Wait.waitFor;
 import static org.hamcrest.Matchers.allOf;
@@ -35,21 +32,31 @@ public class TestChatFragment {
     @Before
     public void setup() {
         waitFor(500);
-        onView(withText(TAB_CHAT)).perform(click());
+        onView(withText("CHAT")).perform(click());
     }
 
     @Test
     public void sendMessage_connected() {
-        onView(withId(R.id.etMessage)).perform(typeText(MESSAGE), closeSoftKeyboard());
-        onView(allOf(withId(R.id.bSend), hasSibling(withId(R.id.etMessage)))).perform(click());
-        onView(allOf(withId(R.id.tvMessage), withText(MESSAGE))).check(matches(isDisplayed()));
+        typeMessage("Hello World!");
+        onView(allOf(withId(R.id.tvMessage), withText("Hello World!"))).check(matches(isDisplayed()));
     }
 
     @Test
     public void sendMessage_notConnected() {
         onView(withId(R.id.menu_disconnect)).perform(click());
-        onView(withId(R.id.etMessage)).perform(click(), typeText(MESSAGE), closeSoftKeyboard());
+        typeMessage("Hello World!");
+        onToast(act.getActivity(), "You need to be connected to a device in order to do this");
+    }
+
+    @Test
+    public void sendMessage_withCr() {
+        onView(withId(R.id.swSendWithCR)).perform(click());
+        typeMessage("Hello World!");
+        onView(allOf(withId(R.id.tvMessage), withText("Hello World!\r"))).check(matches(isDisplayed()));
+    }
+
+    private static void typeMessage(String message) {
+        onView(withId(R.id.etMessage)).perform(typeText(message), closeSoftKeyboard());
         onView(allOf(withId(R.id.bSend), hasSibling(withId(R.id.etMessage)))).perform(click());
-        onToast(act.getActivity(), TOAST_CHAT_DISCONNECTED);
     }
 }

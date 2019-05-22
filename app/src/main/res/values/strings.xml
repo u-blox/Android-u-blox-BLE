@@ -58,5 +58,6 @@
         <item>LOW POWER</item>
     </string-array>
     <string name="location_permission_toast">Location required to scan for low energy devices!</string>
+    <string name="send_with_cr">Send CR</string>
 
 </resources>

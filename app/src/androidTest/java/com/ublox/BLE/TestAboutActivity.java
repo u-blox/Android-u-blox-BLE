@@ -21,7 +21,6 @@ import static android.support.test.espresso.intent.Intents.intending;
 import static android.support.test.espresso.intent.matcher.IntentMatchers.hasAction;
 import static android.support.test.espresso.intent.matcher.IntentMatchers.hasData;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
-import static com.ublox.BLE.ConstantsForTests.WEBSITE;
 import static org.hamcrest.Matchers.allOf;
 
 @RunWith(AndroidJUnit4.class)
@@ -34,7 +33,7 @@ public class TestAboutActivity {
     public void clickLink_firesIntent() {
         Matcher<Intent> matchingIntent = allOf(
             hasAction(Intent.ACTION_VIEW),
-            hasData(Uri.parse(WEBSITE))
+            hasData(Uri.parse("http://u-blox.com"))
         );
 
         intending(matchingIntent).respondWith(new ActivityResult(RESULT_OK, null));

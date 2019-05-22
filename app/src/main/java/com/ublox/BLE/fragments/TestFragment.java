@@ -55,14 +55,6 @@ public class TestFragment extends Fragment {
     private ITestInteractionListener mInteractionListener;
     private TextView tvTxAvg;
 
-    public enum CharacteristicType {
-        FIFO,
-        CREDITS
-    }
-
-    public TestFragment() {
-    }
-
     public static TestFragment newInstance() {
         TestFragment fragment = new TestFragment();
         Bundle args = new Bundle();

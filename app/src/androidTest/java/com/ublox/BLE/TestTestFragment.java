@@ -22,17 +22,6 @@ import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static android.support.test.espresso.matcher.ViewMatchers.isNotChecked;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.espresso.matcher.ViewMatchers.withText;
-import static com.ublox.BLE.ConstantsForTests.MODE_PACKET;
-import static com.ublox.BLE.ConstantsForTests.MTU_MAX;
-import static com.ublox.BLE.ConstantsForTests.MTU_MIN;
-import static com.ublox.BLE.ConstantsForTests.MTU_TOO_LARGE;
-import static com.ublox.BLE.ConstantsForTests.MTU_TOO_SMALL;
-import static com.ublox.BLE.ConstantsForTests.RX_CLEAR;
-import static com.ublox.BLE.ConstantsForTests.TAB_TEST;
-import static com.ublox.BLE.ConstantsForTests.TOAST_MTU_EMPTY;
-import static com.ublox.BLE.ConstantsForTests.TOAST_PACKET_EMPTY;
-import static com.ublox.BLE.ConstantsForTests.TWENTY_BYTES;
-import static com.ublox.BLE.ConstantsForTests.ZERO_BYTES;
 import static com.ublox.BLE.EspressoExtensions.onToast;
 import static com.ublox.BLE.Wait.waitFor;
 import static org.hamcrest.Matchers.not;
@@ -47,37 +36,37 @@ public class TestTestFragment {
     @Before
     public void setup() {
         waitFor(500);
-        onView(withText(TAB_TEST)).perform(click());
+        onView(withText("TEST")).perform(click());
     }
 
     @Test
     public void requestMTU_empty() {
         onView(withId(R.id.bMtu)).perform(click(), click());
-        onToast(act.getActivity(), TOAST_MTU_EMPTY).check(matches(isDisplayed()));
+        onToast(act.getActivity(), "You must enter a number").check(matches(isDisplayed()));
     }
 
     @Test
     public void requestMTU_tooSmall() {
-        enterMTU(MTU_TOO_SMALL);
-        onView(withId(R.id.tvMtuSize)).check(matches(not(withText(MTU_TOO_SMALL))));
+        enterMTU("0");
+        onView(withId(R.id.tvMtuSize)).check(matches(not(withText("0"))));
     }
 
     @Test
     public void requestMTU_min() {
-        enterMTU(MTU_MIN);
-        onView(withId(R.id.tvMtuSize)).check(matches(withText(MTU_MIN)));
+        enterMTU("23");
+        onView(withId(R.id.tvMtuSize)).check(matches(withText("23")));
     }
 
     @Test
     public void requestMTU_max() {
-        enterMTU(MTU_MAX);
-        onView(withId(R.id.tvMtuSize)).check(matches(withText(MTU_MAX)));
+        enterMTU("247");
+        onView(withId(R.id.tvMtuSize)).check(matches(withText("247")));
     }
 
     @Test
     public void requestMTU_tooLarge() {
-        enterMTU(MTU_TOO_LARGE);
-        onView(withId(R.id.tvMtuSize)).check(matches(withText(MTU_MAX)));
+        enterMTU("300");
+        onView(withId(R.id.tvMtuSize)).check(matches(withText("247")));
     }
 
     @Test
@@ -86,7 +75,7 @@ public class TestTestFragment {
         onView(withId(R.id.swCredits)).check(matches(isChecked()));
     }
 
-    @Ignore // TODO: Enable when we can figure out why clicking txTest doesn't return.
+    @Ignore("Datapumping seems to lock ui here, might be badly mocked")
     @Test
     public void toggleCredits_ongoing() {
         onView(withId(R.id.swTxTest)).perform(click());
@@ -96,29 +85,29 @@ public class TestTestFragment {
 
     @Test
     public void sendOnePacket() {
-        onView(withText(MODE_PACKET)).perform(click());
+        onView(withText("packet")).perform(click());
         onView(withId(R.id.swTxTest)).perform(click());
-        onView(withId(R.id.tvTxCounter)).check(matches(withText(TWENTY_BYTES)));
+        onView(withId(R.id.tvTxCounter)).check(matches(withText("20 B")));
     }
 
-    @Ignore // TODO: Enable when we can figure out why clicking txTest doesn't return.
+    @Ignore("Datapumping seems to lock ui here, might be badly mocked")
     @Test
     public void sendContinuous() {
         onView(withId(R.id.continuous)).perform(click());
         onView(withId(R.id.swTxTest)).perform(click());
-        onView(withId(R.id.tvTxCounter)).check(matches(not(withText(ZERO_BYTES))));
+        onView(withId(R.id.tvTxCounter)).check(matches(not(withText("0 B"))));
     }
 
     @Test
     public void clearRx() {
         onView(withId(R.id.bRxReset)).perform(click());
-        onView(withId(R.id.tvRxAvg)).check(matches(withText(RX_CLEAR)));
+        onView(withId(R.id.tvRxAvg)).check(matches(withText("0.00 kbps")));
     }
 
     @Test
     public void setPacketEmpty() {
         onView(withId(R.id.etPacketSize)).perform(click(), clearText(), closeSoftKeyboard());
-        onToast(act.getActivity(), TOAST_PACKET_EMPTY).check(matches(isDisplayed()));
+        onToast(act.getActivity(), "The packet length number too big or not valid!").check(matches(isDisplayed()));
     }
 
     @Test
@@ -131,15 +120,24 @@ public class TestTestFragment {
     @Test
     public void requestMTU_disconnectedNoChange() {
         onView(withId(R.id.menu_disconnect)).perform(click());
-        enterMTU(MTU_MAX);
-        onView(withId(R.id.tvMtuSize)).check(matches(not(withText(MTU_MAX))));
+        enterMTU("247");
+        onView(withId(R.id.tvMtuSize)).check(matches(not(withText("247"))));
     }
 
     @Test
     public void startTxTest_disconnectedNoChange() {
         onView(withId(R.id.menu_disconnect)).perform(click());
         onView(withId(R.id.swTxTest)).perform(click());
-        onView(withId(R.id.tvTxCounter)).check(matches(withText(ZERO_BYTES)));
+        onView(withId(R.id.tvTxCounter)).check(matches(withText("0 B")));
+    }
+
+    @Test
+    public void sendSinglePacketLargerThanMtuDisplaysCorrectly() {
+        onView(withText("packet")).perform(click());
+        onView(withId(R.id.etPacketSize)).perform(click(), clearText(), typeText("32"), closeSoftKeyboard());
+        onView(withId(R.id.swTxTest)).perform(click());
+        onView(withId(R.id.tvTxCounter)).check(matches(withText("32 B")));
+
     }
 
     private void enterMTU(String mtu) {

@@ -7,10 +7,14 @@ import android.content.Context;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.annotation.RequiresApi;
 
 import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
 import com.ublox.BLE.interfaces.BluetoothGattRepresentation;
+
+import static android.bluetooth.BluetoothDevice.PHY_LE_1M_MASK;
+import static android.bluetooth.BluetoothDevice.PHY_LE_2M_MASK;
+import static android.bluetooth.BluetoothDevice.PHY_LE_CODED_MASK;
+import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
 
 public class UBloxDevice implements BluetoothDeviceRepresentation {
     private BluetoothDevice device;
@@ -42,23 +46,19 @@ public class UBloxDevice implements BluetoothDeviceRepresentation {
         return device.getName();
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback, int transport, int phy) {
-        BluetoothGatt gatt = device.connectGatt(context, autoConnect, callback, transport, phy);
-        return gatt != null ? new UBloxGatt(gatt) : null;
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback, int transport) {
-        BluetoothGatt gatt = device.connectGatt(context, autoConnect, callback, transport);
-        return gatt != null ? new UBloxGatt(gatt) : null;
-    }
-
-    @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback) {
-        BluetoothGatt gatt = device.connectGatt(context, autoConnect, callback);
+    public BluetoothGattRepresentation connectGatt(Context context, BluetoothGattCallback callback, boolean phy2M) {
+        BluetoothGatt gatt;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (phy2M) {
+                gatt = device.connectGatt(context, false, callback, TRANSPORT_LE,PHY_LE_CODED_MASK ^ PHY_LE_2M_MASK);
+            } else {
+                gatt = device.connectGatt(context, false, callback, TRANSPORT_LE,PHY_LE_CODED_MASK ^ PHY_LE_1M_MASK);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            gatt = device.connectGatt(context, false, callback, TRANSPORT_LE);
+        } else {
+            gatt = device.connectGatt(context, false, callback);
+        }
         return gatt != null ? new UBloxGatt(gatt) : null;
     }
 

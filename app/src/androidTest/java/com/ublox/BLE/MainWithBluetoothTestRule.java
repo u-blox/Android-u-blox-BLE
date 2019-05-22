@@ -9,9 +9,6 @@ import android.support.test.InstrumentationRegistry;
 import android.support.test.rule.ActivityTestRule;
 
 import com.ublox.BLE.activities.MainActivity;
-import com.ublox.BLE.utils.UBloxDevice;
-
-import static com.ublox.BLE.ConstantsForTests.DEVICE_ADDRESS;
 
 public class MainWithBluetoothTestRule extends ActivityTestRule<MainActivity> {
 
@@ -25,7 +22,7 @@ public class MainWithBluetoothTestRule extends ActivityTestRule<MainActivity> {
         BluetoothManager manager = (BluetoothManager) context
             .getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = manager.getAdapter();
-        BluetoothDevice device = adapter.getRemoteDevice(DEVICE_ADDRESS);
+        BluetoothDevice device = adapter.getRemoteDevice("E8:47:5E:19:6A:06");
         Intent intent = new Intent(context, MainActivity.class);
         intent.putExtra(MainActivity.EXTRA_DEVICE, new MockDevice());
         return intent;

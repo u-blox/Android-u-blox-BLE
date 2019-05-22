@@ -7,19 +7,12 @@ import android.app.FragmentManager;
 import android.app.FragmentTransaction;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattService;
-import android.content.BroadcastReceiver;
-import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.ServiceConnection;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.IBinder;
 import android.support.annotation.RequiresApi;
 import android.support.v13.app.FragmentPagerAdapter;
-import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.view.ViewPager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -34,7 +27,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.ublox.BLE.R;
-import com.ublox.BLE.datapump.DataPumpManager;
+import com.ublox.BLE.datapump.DataPump;
+import com.ublox.BLE.datapump.DataPumpDelegate;
+import com.ublox.BLE.datapump.SpsStream;
 import com.ublox.BLE.fragments.ChatFragment;
 import com.ublox.BLE.fragments.OverviewFragment;
 import com.ublox.BLE.fragments.RemoteControlFragment;
@@ -44,14 +39,14 @@ import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
 import com.ublox.BLE.interfaces.ITestInteractionListener;
 import com.ublox.BLE.server.ServerManager;
 import com.ublox.BLE.services.BluetoothLeService;
-import com.ublox.BLE.utils.BLEQueue;
+import com.ublox.BLE.services.BluetoothLeServiceReceiver;
 import com.ublox.BLE.utils.ConnectionState;
 import com.ublox.BLE.utils.GattAttributes;
 import com.ublox.BLE.utils.PhyMode;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 import static android.bluetooth.BluetoothGatt.GATT_SUCCESS;
 
@@ -59,8 +54,12 @@ import static android.bluetooth.BluetoothGatt.GATT_SUCCESS;
 public class MainActivity extends Activity implements ActionBar.TabListener,
         OverviewFragment.IOverviewFragmentInteraction, ServicesFragment.IServiceFragmentInteraction,
         ChatFragment.IChatInteractionListener, AdapterView.OnItemSelectedListener,
-        ITestInteractionListener, DataPumpManager.IDataPumpListener {
+        ITestInteractionListener, DataPumpDelegate {
 
+    public static final double RATE_CONVERSION = 8000000.0;
+    public static final double KILO_BYTE = 1024.0;
+    public static final double MEGA_BYTE = 1048576.0;
+    public static final double GIGA_BYTE = 1073741824.0;
     private static final String TAG = MainActivity.class.getSimpleName();
 
     public static final String EXTRA_DEVICE = "device";
@@ -74,14 +73,12 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     private boolean needToWaitForMtuUpdate = false;
     private int packetSizeForRemote = -1;
     private boolean isFirstTimeToSetFifo = true;
-    private boolean isServiceBinded;
 
     private TextView tvStatus;
     private RelativeLayout rlProgress;
 
     private BluetoothDeviceRepresentation mDevice;
 
-    private ArrayList<BluetoothGattCharacteristic> characteristics = new ArrayList<>();
     private BluetoothLeService mBluetoothLeService;
     private static ConnectionState mConnectionState = ConnectionState.DISCONNECTED;
 
@@ -95,135 +92,41 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     private BluetoothGattCharacteristic characteristicFifo;
     private BluetoothGattCharacteristic characteristicCredits;
 
-    private DataPumpManager mDataPumpManager;
+    private DataPump mDataPump;
 
-    // Code to manage Service lifecycle.
-    private final ServiceConnection mServiceConnection = new ServiceConnection() {
-
-        @Override
-        public void onServiceConnected(ComponentName componentName, IBinder service) {
-            mBluetoothLeService = ((BluetoothLeService.LocalBinder) service).getService();
-            if (!mBluetoothLeService.initialize()) {
-                finish();
-            }
-            mDataPumpManager.setBluetoothLeService(mBluetoothLeService);
-            // Automatically connects to the device upon successful start-up initialization.
-            if (mDevice != null) {
-                mBluetoothLeService.connect(mDevice);
-                mConnectionState = ConnectionState.CONNECTING;
-            }
-            invalidateOptionsMenu();
-            updateStatus();
-
-            if(!isRemoteMode) {
-                rlProgress.setVisibility(View.VISIBLE);
-            }
+    public void onServiceConnected() {
+        if (!mBluetoothLeService.initialize(this)) {
+            finish();
         }
-
-        @Override
-        public void onServiceDisconnected(ComponentName componentName) {
-            mBluetoothLeService = null;
-        }
-    };
+        mSpsStream.setBluetoothService(mBluetoothLeService);
+    }
 
 
-
-    public final BroadcastReceiver mGattUpdateReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            final String action = intent.getAction();
-            if (BluetoothLeService.ACTION_GATT_CONNECTED.equals(action)) {
-                mConnectionState = ConnectionState.CONNECTED;
-                invalidateOptionsMenu();
-                updateStatus();
-                sendToActiveFragment(true);
-                rlProgress.setVisibility(View.GONE);
-            } else if (BluetoothLeService.ACTION_GATT_DISCONNECTED.equals(action)) {
-                mConnectionState = ConnectionState.DISCONNECTED;
-                invalidateOptionsMenu();
-                sendToActiveFragment(false);
-                updateStatus();
-                rlProgress.setVisibility(View.GONE);
-            } else if (BluetoothLeService.ACTION_GATT_SERVICES_DISCOVERED.equals(action)) {
-                sendToActiveFragment(mBluetoothLeService.getSupportedGattServices());
-                updateStatus();
-                for (BluetoothGattService service : mBluetoothLeService.getSupportedGattServices()) {
-                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
-                        String uuid = characteristic.getUuid().toString();
-                        if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_RANGE)) {
-                            try {
-                                mBluetoothLeService.readCharacteristic(characteristic);
-                            } catch (Exception ignore) {}
-                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_GREEN_LED)) {
-                            try {
-                                characteristicGreenLED = characteristic;
-                                mBluetoothLeService.readCharacteristic(characteristic);
-                            } catch (Exception ignore) {}
-                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_RED_LED)) {
-                            try {
-                                characteristicRedLED = characteristic;
-                                mBluetoothLeService.readCharacteristic(characteristic);
-                            } catch (Exception ignore) {}
-                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_X)
-                                || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Y)
-                                || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Z)
-                                || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_BATTERY_LEVEL)
-                                || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_TEMP_VALUE)
-                                ) {
-                            try {
-                                mBluetoothLeService.readCharacteristic(characteristic);
-                                mBluetoothLeService.setCharacteristicNotification(characteristic, true);
-                            } catch (Exception ignore) {}
-                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_FIFO)) {
-                            characteristicFifo = characteristic;
-                            sendToActiveFragment(characteristicFifo,true);
-                            updateStatus();
-                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_CREDITS)) {
-                            characteristicCredits = characteristic;
-                            sendToActiveFragment(characteristicCredits,false);
-                            updateStatus();
-                        }
-                    }
-                }
-
-            } else if (BluetoothLeService.ACTION_DATA_AVAILABLE.equals(action)) {
-
-                String extraUuid = intent.getStringExtra(BluetoothLeService.EXTRA_UUID);
-                int extraType = intent.getIntExtra(BluetoothLeService.EXTRA_TYPE, -1);
-                byte[] extraData = intent.getByteArrayExtra(BluetoothLeService.EXTRA_DATA);
-
-                sendToActiveFragment(extraUuid, extraType, extraData);
-
-            } else if (BluetoothLeService.ACTION_RSSI_UPDATE.equals(action)) {
-                int rssi = intent.getIntExtra(BluetoothLeService.EXTRA_RSSI, 0);
-                sendToActiveFragment(rssi);
-
-            } else if (BluetoothLeService.ACTION_MTU_UPDATE.equals(action)) {
-                int mtu = intent.getIntExtra(BluetoothLeService.EXTRA_MTU, 0);
-                int status = intent.getIntExtra(BluetoothLeService.EXTRA_STATUS, 0);
-                sendToActiveFragment(mtu, status);
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && BluetoothLeService.ACTION_PHY_MODE_AVAILABLE.equals(action)) {
-                final boolean isUpdate = intent.getBooleanExtra(BluetoothLeService.EXTRA_IS_PHY_UPDATE, true);
-                final PhyMode txPhyMode = mBluetoothLeService.getTxPhyMode();
-                if (!isUpdate) {
-                    sendToTestFragment(txPhyMode);
-                }
-                updateStatus();
-            } else if(BluetoothLeService.ACTION_DESCRIPTOR_WRITE.equals(action) && isRemoteMode
-                    && isFirstTimeToSetFifo) { // TODO check other solution
-                isFirstTimeToSetFifo = false;
-                mDataPumpManager.setCharacteristicCredits(characteristicCredits);
-                if (withCreditsInRemoteMode) {
-                    mDataPumpManager.toggleCreditsConnection(true);
-                }
-                if(!needToWaitForMtuUpdate && !mDataPumpManager.isTestRunning()) {
-                    mDataPumpManager.startDataPump();
-                }
-            }
-        }
-    };
+    public final MyBroadcastReceiver mGattUpdateReceiver = new MyBroadcastReceiver();
 
     private List<BluetoothGattService> mServices;
+    private SpsStream mSpsStream;
+    private long timeOfLastUiUpdate;
+
+    /**
+     * Converts the total number of bytes to a human-readable string.
+     * Prints as integer B or decimal KB, MB, or GB as needed.
+     */
+    public static String transferAmount(long bytes) {
+        if (bytes < KILO_BYTE) return String.format(Locale.US, "%d B", bytes);
+        if (bytes < MEGA_BYTE) return String.format(Locale.US, "%.2f KB", bytes / KILO_BYTE);
+        if (bytes < GIGA_BYTE) return String.format(Locale.US, "%.2f MB", bytes / MEGA_BYTE);
+        return String.format(Locale.US, "%.2f GB", bytes / GIGA_BYTE);
+    }
+
+    /**
+     * Returns a String representing the transfer rate in kbps.
+     * Note: duration is given in nanoseconds.
+     */
+    public static String transferRate(long bytes, long duration) {
+        double kbps = RATE_CONVERSION * bytes / duration;
+        return String.format(Locale.US, "%.2f kbps", kbps);
+    }
 
     private void sendToActiveFragment(List<BluetoothGattService> services) {
         mServices = services;
@@ -253,7 +156,8 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                 testFragment.setTxTestToOff(v);
                 testFragment.setSwCreditsToOff(v);
                 testFragment.updateMTUSize(23);
-                mDataPumpManager.reset();
+                mDataPump.reset();
+                timeOfLastUiUpdate = 0;
             }
         }
 
@@ -262,18 +166,8 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
             if (connected) {
                 if (isRemoteMode) {
                     if (mtuSizeForRemote != -1) {
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                mDataPumpManager.setMtuSize(mtuSizeForRemote);
-                            }
-                        }, 2000);
+                        new Handler().postDelayed(() -> mSpsStream.setMtuSize(mtuSizeForRemote), 2000);
                     }
-                }
-            } else {
-                if (isServiceBinded) {
-                    unbindService(mServiceConnection);
-                    isServiceBinded = false;
                 }
             }
         }
@@ -320,14 +214,14 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
         if (TestFragment.class.isInstance(fragment)) {
                 if(isFifoCharacteristic) {
-                    mDataPumpManager.setCharacteristicFifo(characteristic);
+                    mSpsStream.setFifo(characteristic);
                 } else {
-                    mDataPumpManager.setCharacteristicCredits(characteristic);
+                    mSpsStream.setCredits(characteristic);
                 }
         }
 
         if (RemoteControlFragment.class.isInstance(fragment) && isFifoCharacteristic) {
-            mDataPumpManager.setCharacteristicFifo(characteristic);
+            mSpsStream.setFifo(characteristic);
         }
     }
 
@@ -340,7 +234,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
         if (TestFragment.class.isInstance(fragment)) {
             if (status == GATT_SUCCESS) {
-                mDataPumpManager.updateMtuSizeChanged(mtu);
+                mDataPump.updateMtuSizeChanged(mtu);
             } else {
                 Toast.makeText(fragment.getActivity(), ("Request MTU - error: " + status), Toast.LENGTH_LONG).show();
             }
@@ -348,13 +242,14 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
         if(RemoteControlFragment.class.isInstance(fragment)) {
             if (status == GATT_SUCCESS) {
-                mDataPumpManager.updateMtuSizeChanged(mtu);
+                mDataPump.updateMtuSizeChanged(mtu);
                 if(packetSizeForRemote == -1) {
-                    mDataPumpManager.setPacketSize(mtu - 3);
+                    mDataPump.setPacketSize(mtu - 3);
                 }
                 needToWaitForMtuUpdate = false;
-                if (!mDataPumpManager.isTestRunning() && !isFirstTimeToSetFifo) {
-                    mDataPumpManager.startDataPump();
+                if (!mDataPump.isTestRunning() && !isFirstTimeToSetFifo) {
+                    mDataPump.startDataPump();
+                    timeOfLastUiUpdate = 0;
                 }
             } else {
                 ((RemoteControlFragment)fragment).writeTransferData("Request MTU - error: " + status + "\n\n\r");
@@ -375,7 +270,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         }
     }
 
-    private void sendToActiveFragment(String uuid, int type, byte[] data) {
+    private void sendToActiveFragment(UUID uuid, int type, byte[] data) {
         Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
@@ -383,90 +278,82 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         }
 
         if (OverviewFragment.class.isInstance(fragment)) {
-            View v = fragment.getView();
+            runOnUiThread(() -> {
+                View v = fragment.getView();
 
-            if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_BATTERY_LEVEL)) {
-                ((TextView) v.findViewById(R.id.tvBatteryLevel)).setText(String.format("%d", data[0]));
-            }
-
-            if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_TEMP_VALUE)) {
-                ((TextView) v.findViewById(R.id.tvTemperature)).setText(String.format("%d", data[0]));
-            }
-
-            if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_RANGE)) {
-                ((TextView) v.findViewById(R.id.tvAccelerometerRange)).setText(String.format("+-%d", data[0]));
-            }
-
-            if (type == BLEQueue.ITEM_TYPE_READ) {
-
-                StringBuilder stringBuilder = new StringBuilder(data.length);
-
-                for(byte byteChar : data)
-                    stringBuilder.append(String.format("%02X ", byteChar));
-
-                if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_GREEN_LED)) {
-                    Switch sGreen = (Switch) v.findViewById(R.id.sGreenLight);
-                    if (data[0]  == 0) {
-                        sGreen.setChecked(false);
-                    } else {
-                        sGreen.setChecked(true);
-                    }
-                } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_RED_LED)) {
-                    Switch sRed = (Switch) v.findViewById(R.id.sRedLight);
-                    if (data[0]  == 0) {
-                        sRed.setChecked(false);
-                    } else {
-                        sRed.setChecked(true);
-                    }
+                if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_BATTERY_LEVEL)) {
+                    ((TextView) v.findViewById(R.id.tvBatteryLevel)).setText(String.format("%d", data[0]));
                 }
 
-            } else if (type == BLEQueue.ITEM_TYPE_NOTIFICATION) {
-                if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_X)) {
-                    ((ProgressBar) v.findViewById(R.id.pbX)).setProgress(data[0] + 128);
-                } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Y)) {
-                    ((ProgressBar) v.findViewById(R.id.pbY)).setProgress(data[0] + 128);
-                } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Z)) {
-                    ((ProgressBar) v.findViewById(R.id.pbZ)).setProgress(data[0] + 128);
+                if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_TEMP_VALUE)) {
+                    ((TextView) v.findViewById(R.id.tvTemperature)).setText(String.format("%d", data[0]));
                 }
-            }
+
+                if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_ACC_RANGE)) {
+                    ((TextView) v.findViewById(R.id.tvAccelerometerRange)).setText(String.format("+-%d", data[0]));
+                }
+
+                if (type == BluetoothLeService.ITEM_TYPE_READ) {
+
+                    StringBuilder stringBuilder = new StringBuilder(data.length);
+
+                    for (byte byteChar : data)
+                        stringBuilder.append(String.format("%02X ", byteChar));
+
+                    if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_GREEN_LED)) {
+                        Switch sGreen = v.findViewById(R.id.sGreenLight);
+                        if (data[0] == 0) {
+                            sGreen.setChecked(false);
+                        } else {
+                            sGreen.setChecked(true);
+                        }
+                    } else if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_RED_LED)) {
+                        Switch sRed = v.findViewById(R.id.sRedLight);
+                        if (data[0] == 0) {
+                            sRed.setChecked(false);
+                        } else {
+                            sRed.setChecked(true);
+                        }
+                    }
+
+                } else if (type == BluetoothLeService.ITEM_TYPE_NOTIFICATION) {
+                    if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_ACC_X)) {
+                        ((ProgressBar) v.findViewById(R.id.pbX)).setProgress(data[0] + 128);
+                    } else if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Y)) {
+                        ((ProgressBar) v.findViewById(R.id.pbY)).setProgress(data[0] + 128);
+                    } else if (uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Z)) {
+                        ((ProgressBar) v.findViewById(R.id.pbZ)).setProgress(data[0] + 128);
+                    }
+                }
+            });
         } else if (ServicesFragment.class.isInstance(fragment)) {
-            View v = fragment.getView();
-            Log.i("SERVICE", "gotData, uuid: " + uuid);
-            Log.i("SERVICE", "wanted __UUID: " + ((ServicesFragment) fragment).currentUuid);
+            runOnUiThread(() -> {
+                View v = fragment.getView();
+                Log.i("SERVICE", "gotData, uuid: " + uuid);
+                Log.i("SERVICE", "wanted __UUID: " + ((ServicesFragment) fragment).currentUuid);
 
 
-            if (((ServicesFragment) fragment).currentUuid.equals(uuid)) {
-                StringBuilder stringBuilder = new StringBuilder(data.length);
+                if (((ServicesFragment) fragment).currentUuid.equals(uuid.toString())) {
+                    StringBuilder stringBuilder = new StringBuilder(data.length);
 
-                for(byte byteChar : data)
-                    stringBuilder.append(String.format("%02X ", byteChar));
+                    for (byte byteChar : data)
+                        stringBuilder.append(String.format("%02X ", byteChar));
 
-                TextView tvValue = (TextView) v.findViewById(R.id.tvValue);
-                tvValue.setText(new String(data) + "\n<" + stringBuilder.toString() + ">");
-                Log.i("SERVICE", "gotData: " + tvValue.getText().toString());
-            }
-
+                    TextView tvValue = v.findViewById(R.id.tvValue);
+                    tvValue.setText(new String(data) + "\n<" + stringBuilder.toString() + ">");
+                    Log.i("SERVICE", "gotData: " + tvValue.getText().toString());
+                }
+            });
         }  else if (ChatFragment.class.isInstance(fragment)) {
-            if (type == BLEQueue.ITEM_TYPE_NOTIFICATION && uuid.equals(GattAttributes.UUID_CHARACTERISTIC_FIFO)) {
-                ChatFragment chatFragment = (ChatFragment) fragment;
-                chatFragment.addMessage(data);
-            }
+            runOnUiThread(() -> {
+                if (type == BluetoothLeService.ITEM_TYPE_NOTIFICATION && uuid.toString().equals(GattAttributes.UUID_CHARACTERISTIC_FIFO)) {
+                    ChatFragment chatFragment = (ChatFragment) fragment;
+                    chatFragment.addMessage(data);
+                }
+            });
         } else if (TestFragment.class.isInstance(fragment) || RemoteControlFragment.class.isInstance(fragment)) {
-            mDataPumpManager.notifyGattUpdate(uuid, type, data);
+            mSpsStream.notifyGattUpdate(uuid, type, data);
         }
-    }
-
-    private static IntentFilter makeGattUpdateIntentFilter() {
-        final IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(BluetoothLeService.ACTION_GATT_CONNECTED);
-        intentFilter.addAction(BluetoothLeService.ACTION_GATT_DISCONNECTED);
-        intentFilter.addAction(BluetoothLeService.ACTION_GATT_SERVICES_DISCOVERED);
-        intentFilter.addAction(BluetoothLeService.ACTION_DATA_AVAILABLE);
-        intentFilter.addAction(BluetoothLeService.ACTION_RSSI_UPDATE);
-        intentFilter.addAction(BluetoothLeService.ACTION_MTU_UPDATE);
-        intentFilter.addAction(BluetoothLeService.ACTION_PHY_MODE_AVAILABLE);
-        intentFilter.addAction(BluetoothLeService.ACTION_DESCRIPTOR_WRITE);
-        return intentFilter;
     }
 
     private void updateStatus() {
@@ -511,9 +398,8 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     @Override
     protected void onResume() {
         super.onResume();
-        LocalBroadcastManager.getInstance(getApplicationContext()).registerReceiver(mGattUpdateReceiver,
-                makeGattUpdateIntentFilter());
         if (mBluetoothLeService != null) {
+            mBluetoothLeService.register(mGattUpdateReceiver);
             final boolean result = mBluetoothLeService.connect(mDevice);
             Log.d(TAG, "Connect request result=" + result);
             mConnectionState = ConnectionState.CONNECTING;
@@ -531,21 +417,9 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
             mBluetoothLeService.disconnect();
             mBluetoothLeService.close();
             mConnectionState = ConnectionState.DISCONNECTED;
+            mBluetoothLeService.unregister();
         } catch (Exception ignore) {}
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(mGattUpdateReceiver);
         invalidateOptionsMenu();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (mBluetoothLeService != null) {
-            if (isServiceBinded) {
-                unbindService(mServiceConnection);
-                isServiceBinded = false;
-            }
-            mBluetoothLeService = null;
-        }
     }
 
     @Override
@@ -556,10 +430,10 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         getActionBar().setDisplayUseLogoEnabled(true);
         setContentView(R.layout.activity_main);
 
-        mViewPager = (ViewPager) findViewById(R.id.pager);
+        mViewPager = findViewById(R.id.pager);
 
-        tvStatus = (TextView) findViewById(R.id.tvStatus);
-        rlProgress = (RelativeLayout) findViewById(R.id.rlProgress);
+        tvStatus = findViewById(R.id.tvStatus);
+        rlProgress = findViewById(R.id.rlProgress);
 
         final Intent intent = getIntent();
         isRemoteMode = intent.hasExtra(EXTRA_REMOTE);
@@ -579,8 +453,9 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
             transaction.commit();
 
         } else {
-            mDataPumpManager = new DataPumpManager(this);
-            connectToDevice((BluetoothDeviceRepresentation) intent.getParcelableExtra(EXTRA_DEVICE));
+            mSpsStream = new SpsStream();
+            mDataPump = new DataPump(mSpsStream, this);
+            connectToDevice(intent.getParcelableExtra(EXTRA_DEVICE));
 
             // Get a ref to the actionbar and set the navigation mode
             final ActionBar actionBar = getActionBar();
@@ -601,11 +476,9 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     private void connectToDevice(BluetoothDeviceRepresentation bluetoothDevice) {
         // get the information from the device scan
         mDevice = bluetoothDevice;
-        Intent gattServiceIntent = new Intent(this, BluetoothLeService.class);
-        if (!isServiceBinded) { //TODO maybe better to bind anyway
-            bindService(gattServiceIntent, mServiceConnection, BIND_AUTO_CREATE);
-            isServiceBinded = true;
-        }
+
+        mBluetoothLeService = new BluetoothLeService();
+        onServiceConnected();
     }
 
     public void connectToDeviceByRemoteControl(Bundle connectInfoBundle) {
@@ -613,18 +486,19 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         showRxInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_SHOW_RX, false);
         showTxInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_SHOW_TX, false);
         withCreditsInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_WITH_CREDITS, false);
-        mDataPumpManager = new DataPumpManager(this);
+        mSpsStream = new SpsStream();
+        mDataPump = new DataPump(mSpsStream,this);
 
         mtuSizeForRemote = connectInfoBundle.getInt(ServerManager.BUNDLE_MTU, -1);
         needToWaitForMtuUpdate = mtuSizeForRemote != -1;
         packetSizeForRemote = connectInfoBundle.getInt(ServerManager.BUNDLE_PACKETSIZE, -1);
         if(packetSizeForRemote != -1) {
-            mDataPumpManager.setPacketSize(packetSizeForRemote);
+            mDataPump.setPacketSize(packetSizeForRemote);
         } else {
-            mDataPumpManager.setContinuousMode(true);
+            mDataPump.setContinuousMode(true);
         }
 
-        connectToDevice((BluetoothDeviceRepresentation) connectInfoBundle.getParcelable(EXTRA_DEVICE));
+        connectToDevice(connectInfoBundle.getParcelable(EXTRA_DEVICE));
     }
 
     private void setTabsWithPagerAdapter(final ActionBar actionBar) {
@@ -658,10 +532,10 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                         break;
                     case 3:
                         if (characteristicCredits != null) {
-                            mDataPumpManager.setCharacteristicCredits(characteristicCredits);
+                            mSpsStream.setCredits(characteristicCredits);
                         }
                         if (characteristicFifo != null) {
-                            mDataPumpManager.setCharacteristicFifo(characteristicFifo);
+                            mSpsStream.setFifo(characteristicFifo);
                         }
                         break;
                     default:
@@ -735,8 +609,8 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     @Override
     public void onBackPressed() {
         Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
-        if(fragment != null && fragment instanceof ServicesFragment &&
-                ((ServicesFragment) fragment).isCharacteristicViewVisible()) {
+        if(fragment instanceof ServicesFragment &&
+            ((ServicesFragment) fragment).isCharacteristicViewVisible()) {
             ((ServicesFragment) fragment).backButtonPressed();
         } else {
             super.onBackPressed();
@@ -827,46 +701,48 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     @Override
     public void onSwitchCredits(boolean enabled) {
-        mDataPumpManager.toggleCreditsConnection(enabled);
+        mSpsStream.toggleCreditsConnection(enabled);
     }
 
     @Override
     public void onSwitchTest(boolean enabled) {
         if (enabled) {
-            mDataPumpManager.startDataPump();
+            mDataPump.startDataPump();
+            timeOfLastUiUpdate = 0;
         } else {
-            mDataPumpManager.stopDataPump();
+            mDataPump.stopDataPump();
         }
     }
 
     @Override
     public void onModeSet(boolean continuousEnabled) {
-        mDataPumpManager.setContinuousMode(continuousEnabled);
+        mDataPump.setContinuousMode(continuousEnabled);
     }
 
     @Override
     public void onMtuSizeChanged(int size) {
-        mDataPumpManager.setMtuSize(size);
+        mSpsStream.setMtuSize(size);
     }
 
     @Override
     public void onPacketSizeChanged(int size) {
-        mDataPumpManager.setPacketSize(size);
+        mDataPump.setPacketSize(size);
     }
 
     @Override
     public void onBitErrorChanged(boolean enabled) {
-        mDataPumpManager.setBitErrorActive(enabled);
+        mDataPump.setBitErrorActive(enabled);
     }
 
     @Override
     public void onReset() {
-        mDataPumpManager.resetDataPump();
+        mDataPump.resetDataPump();
+        timeOfLastUiUpdate = 0;
     }
 
     @Override
     public void updateConnectionPrio(int connectionParameter) {
-        mDataPumpManager.connectionPrioRequest(connectionParameter);
+        mSpsStream.connectionPrioRequest(connectionParameter);
     }
 
     @Override
@@ -908,40 +784,52 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     }
 
     @Override
-    public void updateTxCounter(String value, String average) {
+    public void onTx(long bytes, long duration) {
+        if (mDataPump.isTestRunning() && duration - timeOfLastUiUpdate < 100000000) return;
+        timeOfLastUiUpdate = duration;
+
         Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
         }
 
-        if (TestFragment.class.isInstance(fragment)) {
-            ((TestFragment)fragment).updateTxCounter(value, average);
-        }
+        runOnUiThread(() -> {
+            String value = MainActivity.transferAmount(bytes);
+            String average = MainActivity.transferRate(bytes, duration);
 
-        if (RemoteControlFragment.class.isInstance(fragment) && showTxInRemoteMode) {
-            ((RemoteControlFragment)fragment).writeTxData(value, average);
-        }
+            if (TestFragment.class.isInstance(fragment)) {
+                ((TestFragment) fragment).updateTxCounter(value, average);
+            }
+
+            if (RemoteControlFragment.class.isInstance(fragment) && showTxInRemoteMode) {
+                ((RemoteControlFragment) fragment).writeTxData(value, average);
+            }
+        });
     }
 
     @Override
-    public void updateRxCounter(String rxValue, String average) {
+    public void onRx(long bytes, long duration) {
         Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
         }
 
-        if (TestFragment.class.isInstance(fragment)) {
-            ((TestFragment)fragment).updateRxCounter(rxValue, average);
-        }
+        runOnUiThread(() -> {
+            String rxValue = MainActivity.transferAmount(bytes);
+            String average = MainActivity.transferRate(bytes, duration);
 
-        if (RemoteControlFragment.class.isInstance(fragment) && showRxInRemoteMode) {
-            ((RemoteControlFragment)fragment).writeRxData(rxValue, average);
-        }
+            if (TestFragment.class.isInstance(fragment)) {
+                ((TestFragment) fragment).updateRxCounter(rxValue, average);
+            }
+
+            if (RemoteControlFragment.class.isInstance(fragment) && showRxInRemoteMode) {
+                ((RemoteControlFragment) fragment).writeRxData(rxValue, average);
+            }
+        });
     }
 
-    @Override
     public void onLastPacketSent() {
         if (isRemoteMode) {
             Fragment fragment = remoteControlFragment;
@@ -954,22 +842,13 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     }
 
     public void disconnectFromDeviceByRemoteControl() {
-        if (mDataPumpManager != null && mBluetoothLeService != null) {
-            mDataPumpManager.stopDataPump();
+        if (mDataPump != null && mBluetoothLeService != null) {
+            mDataPump.stopDataPump();
             mBluetoothLeService.disconnect();
             mBluetoothLeService.close();
-            if (isServiceBinded) {
-                unbindService(mServiceConnection);
-                isServiceBinded = false;
-            }
             mBluetoothLeService = null;
             mConnectionState = ConnectionState.DISCONNECTED;
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    updateStatus();
-                }
-            });
+            runOnUiThread(this::updateStatus);
         }
     }
 
@@ -1048,6 +927,125 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                     return getString(R.string.title_section4).toUpperCase(l);
             }
             return null;
+        }
+    }
+
+    private class MyBroadcastReceiver implements BluetoothLeServiceReceiver {
+        @Override
+        public void onDescriptorWrite() {
+            // TODO check other solution
+            runOnUiThread(() -> {
+                if (isRemoteMode && isFirstTimeToSetFifo) {
+                    isFirstTimeToSetFifo = false;
+                    mSpsStream.setCredits(characteristicCredits);
+                    if (withCreditsInRemoteMode) {
+                        mSpsStream.toggleCreditsConnection(true);
+                    }
+                    if (!needToWaitForMtuUpdate && !mDataPump.isTestRunning()) {
+                        mDataPump.startDataPump();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void onPhyAvailable(boolean isUpdate) {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    final PhyMode txPhyMode = mBluetoothLeService.getTxPhyMode();
+                    if (!isUpdate) {
+                        sendToTestFragment(txPhyMode);
+                    }
+                    updateStatus();
+                }
+            });
+        }
+
+        @Override
+        public void onMtuUpdate(int mtu, int status) {
+            runOnUiThread(() -> sendToActiveFragment(mtu, status));
+        }
+
+        @Override
+        public void onRssiUpdate(int rssi) {
+            runOnUiThread(() -> sendToActiveFragment(rssi));
+        }
+
+        @Override
+        public void onDataAvailable(UUID uUid, int type, byte[] data) {
+            sendToActiveFragment(uUid, type, data);
+        }
+
+        @Override
+        public void onServicesDiscovered() {
+            runOnUiThread(() -> {
+                sendToActiveFragment(mBluetoothLeService.getSupportedGattServices());
+                updateStatus();
+                for (BluetoothGattService service : mBluetoothLeService.getSupportedGattServices()) {
+                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                        String uuid = characteristic.getUuid().toString();
+                        if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_RANGE)) {
+                            try {
+                                mBluetoothLeService.readCharacteristic(characteristic);
+                            } catch (Exception ignore) {
+                            }
+                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_GREEN_LED)) {
+                            try {
+                                characteristicGreenLED = characteristic;
+                                mBluetoothLeService.readCharacteristic(characteristic);
+                            } catch (Exception ignore) {
+                            }
+                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_RED_LED)) {
+                            try {
+                                characteristicRedLED = characteristic;
+                                mBluetoothLeService.readCharacteristic(characteristic);
+                            } catch (Exception ignore) {
+                            }
+                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_X)
+                            || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Y)
+                            || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_ACC_Z)
+                            || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_BATTERY_LEVEL)
+                            || uuid.equals(GattAttributes.UUID_CHARACTERISTIC_TEMP_VALUE)
+                            ) {
+                            try {
+                                mBluetoothLeService.readCharacteristic(characteristic);
+                                mBluetoothLeService.setCharacteristicNotification(characteristic, true);
+                            } catch (Exception ignore) {
+                            }
+                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_FIFO)) {
+                            characteristicFifo = characteristic;
+                            sendToActiveFragment(characteristicFifo, true);
+                            updateStatus();
+                        } else if (uuid.equals(GattAttributes.UUID_CHARACTERISTIC_CREDITS)) {
+                            characteristicCredits = characteristic;
+                            sendToActiveFragment(characteristicCredits, false);
+                            updateStatus();
+                        }
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void onGattDisconnected() {
+            runOnUiThread(() -> {
+                mConnectionState = ConnectionState.DISCONNECTED;
+                invalidateOptionsMenu();
+                sendToActiveFragment(false);
+                updateStatus();
+                rlProgress.setVisibility(View.GONE);
+            });
+        }
+
+        @Override
+        public void onGattConnected() {
+            runOnUiThread(() -> {
+                mConnectionState = ConnectionState.CONNECTED;
+                invalidateOptionsMenu();
+                updateStatus();
+                sendToActiveFragment(true);
+                rlProgress.setVisibility(View.GONE);
+            });
         }
     }
 }

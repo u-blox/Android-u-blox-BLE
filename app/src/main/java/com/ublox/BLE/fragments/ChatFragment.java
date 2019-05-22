@@ -10,11 +10,13 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.Switch;
 import android.widget.Toast;
 
 import com.ublox.BLE.R;
 import com.ublox.BLE.activities.MainActivity;
 import com.ublox.BLE.adapters.ChatAdapter;
+import com.ublox.BLE.utils.PacketChunker;
 
 import java.util.Date;
 
@@ -28,15 +30,6 @@ public class ChatFragment extends Fragment {
         Bundle args = new Bundle();
         fragment.setArguments(args);
         return fragment;
-    }
-
-    public ChatFragment() {}
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        if (getArguments() != null) {
-        }
     }
 
     @Override
@@ -53,26 +46,28 @@ public class ChatFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
         chatAdapter = new ChatAdapter(getActivity());
 
-        lvChat = (ListView) view.findViewById(R.id.lvChat);
+        lvChat = view.findViewById(R.id.lvChat);
         lvChat.setAdapter(chatAdapter);
 
-        Button bSend = (Button) view.findViewById(R.id.bSend);
-        final EditText etMessage = (EditText) view.findViewById(R.id.etMessage);
+        Button bSend = view.findViewById(R.id.bSend);
+        final EditText etMessage = view.findViewById(R.id.etMessage);
+        Switch swSendCR = view.findViewById(R.id.swSendWithCR);
 
-        bSend.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (characteristic != null && ((MainActivity)getActivity()).isConnected()) {
-                    String msg = etMessage.getText().toString();
-                    //APET Lägg till kontroll av carriage return (0x0D) switch
-                    ChatAdapter.ChatMessage message = new ChatAdapter.ChatMessage(msg, new Date().toString(), true);
-                    chatAdapter.addMessage(message);
-                    mListener.onSendMessage(characteristic, message.message.getBytes());
-                } else {
-                    Toast.makeText(getActivity(), "You need to be connected to a device in order to do this", Toast.LENGTH_LONG).show();
+        bSend.setOnClickListener(v -> {
+            if (characteristic != null && ((MainActivity)getActivity()).isConnected()) {
+                String msg = etMessage.getText().toString();
+                if (swSendCR.isChecked()) {
+                    msg = msg + "\r";
                 }
-                etMessage.setText("");
+                ChatAdapter.ChatMessage message = new ChatAdapter.ChatMessage(msg, new Date().toString(), true);
+                chatAdapter.addMessage(message);
+                for(byte[] chunk: PacketChunker.chunkify(message.message.getBytes(), 20)) {
+                    mListener.onSendMessage(characteristic, chunk);
+                }
+            } else {
+                Toast.makeText(getActivity(), "You need to be connected to a device in order to do this", Toast.LENGTH_LONG).show();
             }
+            etMessage.setText("");
         });
     }
 
@@ -117,8 +112,8 @@ public class ChatFragment extends Fragment {
     }
 
     public interface IChatInteractionListener {
-        public void onSendMessage(BluetoothGattCharacteristic characteristic, byte[] message);
-        public void onNotify(BluetoothGattCharacteristic characteristic, boolean enabled);
+        void onSendMessage(BluetoothGattCharacteristic characteristic, byte[] message);
+        void onNotify(BluetoothGattCharacteristic characteristic, boolean enabled);
     }
 
 }

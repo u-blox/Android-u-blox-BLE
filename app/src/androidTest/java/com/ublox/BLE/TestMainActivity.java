@@ -16,9 +16,6 @@ import static android.support.test.espresso.assertion.ViewAssertions.matches;
 import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.espresso.matcher.ViewMatchers.withText;
-import static com.ublox.BLE.ConstantsForTests.TAB_CHAT;
-import static com.ublox.BLE.ConstantsForTests.TAB_SERVICES;
-import static com.ublox.BLE.ConstantsForTests.TAB_TEST;
 import static com.ublox.BLE.EspressoExtensions.onEveryView;
 import static com.ublox.BLE.Wait.waitFor;
 
@@ -37,9 +34,9 @@ public class TestMainActivity {
     public void tabsExists() {
         onEveryView(
             onView(withText(act.getActivity().getString(R.string.title_section1).toUpperCase())),
-            onView(withText(TAB_SERVICES)),
-            onView(withText(TAB_CHAT)),
-            onView(withText(TAB_TEST))
+            onView(withText("SERVICES")),
+            onView(withText("CHAT")),
+            onView(withText("TEST"))
         ).check(matches(isDisplayed()));
     }
 

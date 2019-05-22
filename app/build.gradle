@@ -10,8 +10,8 @@ android {
         applicationId "com.ublox.BLE"
         minSdkVersion 18
         targetSdkVersion 28
-        versionCode 13
-        versionName "2.6"
+        versionCode 14
+        versionName "2.7"
         vectorDrawables.useSupportLibrary = true
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
@@ -35,6 +35,8 @@ android {
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
     compile 'com.android.support:support-v13:28.0.0'
+    testCompile 'junit:junit:4.12'
+    testCompile 'org.hamcrest:hamcrest:2.1'
     androidTestCompile 'com.android.support.test:runner:1.0.2'
     androidTestCompile 'com.android.support.test.espresso:espresso-core:3.0.2'
     androidTestCompile 'com.android.support.test.espresso:espresso-intents:3.0.2'

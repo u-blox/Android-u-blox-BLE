@@ -1,6 +1,5 @@
 package com.ublox.BLE;
 
-import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.content.Context;
 import android.os.Handler;
@@ -28,21 +27,7 @@ public class MockDevice implements BluetoothDeviceRepresentation {
     };
 
     @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback, int transport, int phy) {
-        return connectMock(callback);
-    }
-
-    @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback, int transport) {
-        return connectMock(callback);
-    }
-
-    @Override
-    public BluetoothGattRepresentation connectGatt(Context context, boolean autoConnect, BluetoothGattCallback callback) {
-        return connectMock(callback);
-    }
-
-    private MockGatt connectMock(BluetoothGattCallback callback) {
+    public BluetoothGattRepresentation connectGatt(Context context, BluetoothGattCallback callback, boolean phy2M) {
         MockGatt gatt = new MockGatt(callback);
         Handler main = new Handler(Looper.getMainLooper());
         main.post(gatt::connect);

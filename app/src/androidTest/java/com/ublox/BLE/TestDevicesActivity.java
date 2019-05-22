@@ -14,6 +14,7 @@ import com.ublox.BLE.activities.DevicesActivity;
 import com.ublox.BLE.activities.MainActivity;
 
 import org.junit.After;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,8 +28,6 @@ import static android.support.test.espresso.assertion.ViewAssertions.matches;
 import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.runner.lifecycle.Stage.RESUMED;
-import static com.ublox.BLE.ConstantsForTests.DEVICE_ADDRESS;
-import static com.ublox.BLE.ConstantsForTests.TIMEOUT;
 import static com.ublox.BLE.EspressoExtensions.withDevice;
 
 @RunWith(AndroidJUnit4.class)
@@ -42,32 +41,34 @@ public class TestDevicesActivity {
     @Rule
     public GrantPermissionRule permissionRule = GrantPermissionRule.grant(Manifest.permission.ACCESS_COARSE_LOCATION);
 
+    @Ignore("Requires real hardware to test...")
     @Test
     public void findDeviceInList() {
         onView(withId(R.id.menu_scan)).perform(click());
         DeviceDiscoverIdler awaitData = new DeviceDiscoverIdler(
-            DEVICE_ADDRESS,
+            "E8:47:5E:19:6A:06",
             ((ListView) act.getActivity().findViewById(R.id.lvDevices)).getAdapter(),
-            TIMEOUT
+            (long) 10000
         );
         IdlingRegistry.getInstance().register(awaitData);
-        onData(withDevice(DEVICE_ADDRESS)).check(matches(isDisplayed()));
+        onData(withDevice("E8:47:5E:19:6A:06")).check(matches(isDisplayed()));
         IdlingRegistry.getInstance().unregister(awaitData);
     }
 
+    @Ignore("Requires real hardware to test...")
     @Test
     public void connectToDevice() {
         onView(withId(R.id.menu_scan)).perform(click());
         waitForDevice = new DeviceDiscoverIdler(
-            DEVICE_ADDRESS,
+            "E8:47:5E:19:6A:06",
             ((ListView) act.getActivity().findViewById(R.id.lvDevices)).getAdapter(),
-            TIMEOUT
+            (long) 10000
         );
         IdlingRegistry.getInstance().register(waitForDevice);
 
-        onData(withDevice(DEVICE_ADDRESS)).perform(click());
+        onData(withDevice("E8:47:5E:19:6A:06")).perform(click());
 
-        waitForConnect = new DeviceConnectionIdler(getMainActivity(), TIMEOUT);
+        waitForConnect = new DeviceConnectionIdler(getMainActivity(), (long) 10000);
         IdlingRegistry.getInstance().register(waitForConnect);
         onView(withId(R.id.menu_disconnect)).check(matches(isDisplayed()));
     }
