@@ -15,9 +15,9 @@
 				<category android:name="android.intent.category.LAUNCHER"/>
 			</intent-filter>
 		</activity>
-		<service android:name="com.ublox.BLE.services.BluetoothLeService" android:enabled="true"/>
 		<activity android:name="com.ublox.BLE.activities.MainActivity" android:label="" android:screenOrientation="portrait"
 			 android:windowSoftInputMode="adjustResize|stateUnchanged"/>
 		<activity android:name="com.ublox.BLE.activities.AboutActivity" android:label="" android:screenOrientation="portrait"/>
+		<activity android:name=".activities.RemoteActivity" android:label="" android:screenOrientation="portrait"/>
 	</application>
 </manifest>

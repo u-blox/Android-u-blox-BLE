@@ -10,7 +10,6 @@ import android.bluetooth.BluetoothGattService;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.support.annotation.RequiresApi;
 import android.support.v13.app.FragmentPagerAdapter;
 import android.support.v4.view.ViewPager;
@@ -28,18 +27,14 @@ import android.widget.Toast;
 
 import com.ublox.BLE.R;
 import com.ublox.BLE.datapump.DataPump;
-import com.ublox.BLE.datapump.DataPumpDelegate;
 import com.ublox.BLE.datapump.SpsStream;
 import com.ublox.BLE.fragments.ChatFragment;
 import com.ublox.BLE.fragments.OverviewFragment;
-import com.ublox.BLE.fragments.RemoteControlFragment;
 import com.ublox.BLE.fragments.ServicesFragment;
 import com.ublox.BLE.fragments.TestFragment;
 import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
 import com.ublox.BLE.interfaces.ITestInteractionListener;
-import com.ublox.BLE.server.ServerManager;
 import com.ublox.BLE.services.BluetoothLeService;
-import com.ublox.BLE.services.BluetoothLeServiceReceiver;
 import com.ublox.BLE.utils.ConnectionState;
 import com.ublox.BLE.utils.GattAttributes;
 import com.ublox.BLE.utils.PhyMode;
@@ -54,7 +49,7 @@ import static android.bluetooth.BluetoothGatt.GATT_SUCCESS;
 public class MainActivity extends Activity implements ActionBar.TabListener,
         OverviewFragment.IOverviewFragmentInteraction, ServicesFragment.IServiceFragmentInteraction,
         ChatFragment.IChatInteractionListener, AdapterView.OnItemSelectedListener,
-        ITestInteractionListener, DataPumpDelegate {
+        ITestInteractionListener, DataPump.Delegate {
 
     public static final double RATE_CONVERSION = 8000000.0;
     public static final double KILO_BYTE = 1024.0;
@@ -63,15 +58,8 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     private static final String TAG = MainActivity.class.getSimpleName();
 
     public static final String EXTRA_DEVICE = "device";
-    public static final String EXTRA_REMOTE = "remote";
 
-    private boolean isRemoteMode;
-    private boolean showRxInRemoteMode;
-    private boolean showTxInRemoteMode;
-    private boolean withCreditsInRemoteMode;
-    private int mtuSizeForRemote = -1;
     private boolean needToWaitForMtuUpdate = false;
-    private int packetSizeForRemote = -1;
     private boolean isFirstTimeToSetFifo = true;
 
     private TextView tvStatus;
@@ -84,7 +72,6 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     private SectionsPagerAdapter mSectionsPagerAdapter;
     private ViewPager mViewPager;
-    private Fragment remoteControlFragment;
 
     private BluetoothGattCharacteristic characteristicRedLED;
     private BluetoothGattCharacteristic characteristicGreenLED;
@@ -130,7 +117,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     private void sendToActiveFragment(List<BluetoothGattService> services) {
         mServices = services;
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -143,7 +130,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     }
 
     private void sendToActiveFragment(boolean connected) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -160,23 +147,12 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                 timeOfLastUiUpdate = 0;
             }
         }
-
-        if(RemoteControlFragment.class.isInstance(fragment)) {
-            ((RemoteControlFragment)fragment).writeTransferData(connected ? "Connected!\n\n\r" : "Disconnected!\n\n\r");
-            if (connected) {
-                if (isRemoteMode) {
-                    if (mtuSizeForRemote != -1) {
-                        new Handler().postDelayed(() -> mSpsStream.setMtuSize(mtuSizeForRemote), 2000);
-                    }
-                }
-            }
-        }
     }
 
     @RequiresApi(26)
     private void sendToTestFragment(PhyMode txPhyMode) {
         final int testPosition = 3;
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(testPosition);
+        Fragment fragment = mSectionsPagerAdapter.getItem(testPosition);
         if (TestFragment.class.isInstance(fragment)) {
             TestFragment testFragment = (TestFragment) fragment;
             testFragment.setIsLE2MPhySupported(txPhyMode);
@@ -187,21 +163,19 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         PhyMode txPhyMode = mBluetoothLeService.getTxPhyMode();
         PhyMode rxPhyMode = mBluetoothLeService.getRxPhyMode();
 
-        if (txPhyMode == PhyMode.PHY_UNDEFINED) {
-            return "";
-        } else if (txPhyMode == rxPhyMode) {
-            return ", central and peripheral have " + txPhyMode.toString() + " enabled";
-        } else if (rxPhyMode == PhyMode.PHY_UNDEFINED){
-            return ", central has " + txPhyMode.toString() + " enabled";
+        if (txPhyMode == rxPhyMode && txPhyMode != PhyMode.PHY_UNDEFINED) {
+            return "central and peripheral have " + txPhyMode.toString();
+        } else if (txPhyMode != PhyMode.PHY_UNDEFINED && rxPhyMode != PhyMode.PHY_UNDEFINED){
+            return "central has " + txPhyMode.toString() + ", peripheral has " + rxPhyMode;
         } else {
-            return ", only " + (PhyMode.is2MPhyEnabled(txPhyMode) ? "central" : "peripheral") + " has 2 M phy enabled";
+            return "gatt connected";
         }
 
     }
 
 
     private void sendToActiveFragment(final BluetoothGattCharacteristic characteristic, boolean isFifoCharacteristic) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -219,14 +193,10 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                     mSpsStream.setCredits(characteristic);
                 }
         }
-
-        if (RemoteControlFragment.class.isInstance(fragment) && isFifoCharacteristic) {
-            mSpsStream.setFifo(characteristic);
-        }
     }
 
     private void sendToActiveFragment(int mtu, int status) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -239,26 +209,10 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                 Toast.makeText(fragment.getActivity(), ("Request MTU - error: " + status), Toast.LENGTH_LONG).show();
             }
         }
-
-        if(RemoteControlFragment.class.isInstance(fragment)) {
-            if (status == GATT_SUCCESS) {
-                mDataPump.updateMtuSizeChanged(mtu);
-                if(packetSizeForRemote == -1) {
-                    mDataPump.setPacketSize(mtu - 3);
-                }
-                needToWaitForMtuUpdate = false;
-                if (!mDataPump.isTestRunning() && !isFirstTimeToSetFifo) {
-                    mDataPump.startDataPump();
-                    timeOfLastUiUpdate = 0;
-                }
-            } else {
-                ((RemoteControlFragment)fragment).writeTransferData("Request MTU - error: " + status + "\n\n\r");
-            }
-        }
     }
 
     private void sendToActiveFragment(int rssi) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -271,7 +225,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     }
 
     private void sendToActiveFragment(UUID uuid, int type, byte[] data) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -351,7 +305,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                     chatFragment.addMessage(data);
                 }
             });
-        } else if (TestFragment.class.isInstance(fragment) || RemoteControlFragment.class.isInstance(fragment)) {
+        } else if (TestFragment.class.isInstance(fragment)) {
             mSpsStream.notifyGattUpdate(uuid, type, data);
         }
     }
@@ -362,35 +316,33 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                 tvStatus.setText(R.string.status_disconnected);
                 break;
             case CONNECTING:
-                if(!isRemoteMode) {
-                    tvStatus.setText(R.string.status_connecting);
-                }
+                tvStatus.setText(R.string.status_connecting);
                 break;
             case CONNECTED:
-                int fragmentId = mViewPager.getCurrentItem();
-                switch (fragmentId){
-                    default:
-                        tvStatus.setText(R.string.status_connected);
-                        if (mServices != null && !mServices.isEmpty()) {
-                            tvStatus.setText(R.string.status_discovered);
-                        }
-                        break;
+                StringBuilder status = new StringBuilder(phyStateToString());
+                status.append(", ");
+                switch (mViewPager.getCurrentItem()){
                     case 2:
                         if (characteristicFifo != null) {
-                            tvStatus.setText(R.string.status_chat_available);
+                            status.append(getString(R.string.status_chat_available));
                         } else {
-                            tvStatus.setText(R.string.status_fifo_unavailable);
+                            status.append(getString(R.string.status_fifo_unavailable));
                         }
                         break;
                     case 3:
                         if (characteristicFifo != null && characteristicCredits != null) {
-                            String status = getString(R.string.status_sps_available) + phyStateToString();
-                            tvStatus.setText(status);
+                            status.append(getString(R.string.status_sps_available));
                         } else {
-                            tvStatus.setText(R.string.status_fifo_credits_unavailable);
+                            status.append(getString(R.string.status_fifo_credits_unavailable));
+                        }
+                        break;
+                    default:
+                        if (mServices != null && !mServices.isEmpty()) {
+                            status.append(getString(R.string.status_discovered));
                         }
                         break;
                 }
+                tvStatus.setText(status);
                 break;
         }
     }
@@ -436,41 +388,25 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         rlProgress = findViewById(R.id.rlProgress);
 
         final Intent intent = getIntent();
-        isRemoteMode = intent.hasExtra(EXTRA_REMOTE);
         updateStatus();
 
-        if(isRemoteMode) {
+        mSpsStream = new SpsStream();
+        mDataPump = new DataPump(mSpsStream, this);
+        connectToDevice(intent.getParcelableExtra(EXTRA_DEVICE));
 
-            mViewPager.setVisibility(View.GONE);
-            rlProgress.setVisibility(View.GONE);
+        // Get a ref to the actionbar and set the navigation mode
+        final ActionBar actionBar = getActionBar();
 
-            FragmentManager fragmentManager = getFragmentManager();
-            FragmentTransaction transaction = fragmentManager.beginTransaction();
+        setTabsWithPagerAdapter(actionBar);
 
-            remoteControlFragment = new RemoteControlFragment();
-            transaction.add(R.id.llMain, remoteControlFragment);
-
-            transaction.commit();
-
+        final String name = mDevice.getName();
+        if (!TextUtils.isEmpty(name)) {
+            getActionBar().setTitle(name);
         } else {
-            mSpsStream = new SpsStream();
-            mDataPump = new DataPump(mSpsStream, this);
-            connectToDevice(intent.getParcelableExtra(EXTRA_DEVICE));
-
-            // Get a ref to the actionbar and set the navigation mode
-            final ActionBar actionBar = getActionBar();
-
-            setTabsWithPagerAdapter(actionBar);
-
-            final String name = mDevice.getName();
-            if (!TextUtils.isEmpty(name)) {
-                getActionBar().setTitle(name);
-            } else {
-                getActionBar().setTitle(mDevice.getAddress());
-            }
-
-            actionBar.setDisplayShowCustomEnabled(true);
+            getActionBar().setTitle(mDevice.getAddress());
         }
+
+        actionBar.setDisplayShowCustomEnabled(true);
     }
 
     private void connectToDevice(BluetoothDeviceRepresentation bluetoothDevice) {
@@ -479,26 +415,6 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
         mBluetoothLeService = new BluetoothLeService();
         onServiceConnected();
-    }
-
-    public void connectToDeviceByRemoteControl(Bundle connectInfoBundle) {
-        isFirstTimeToSetFifo = true;
-        showRxInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_SHOW_RX, false);
-        showTxInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_SHOW_TX, false);
-        withCreditsInRemoteMode = connectInfoBundle.getBoolean(ServerManager.BUNDLE_WITH_CREDITS, false);
-        mSpsStream = new SpsStream();
-        mDataPump = new DataPump(mSpsStream,this);
-
-        mtuSizeForRemote = connectInfoBundle.getInt(ServerManager.BUNDLE_MTU, -1);
-        needToWaitForMtuUpdate = mtuSizeForRemote != -1;
-        packetSizeForRemote = connectInfoBundle.getInt(ServerManager.BUNDLE_PACKETSIZE, -1);
-        if(packetSizeForRemote != -1) {
-            mDataPump.setPacketSize(packetSizeForRemote);
-        } else {
-            mDataPump.setContinuousMode(true);
-        }
-
-        connectToDevice(connectInfoBundle.getParcelable(EXTRA_DEVICE));
     }
 
     private void setTabsWithPagerAdapter(final ActionBar actionBar) {
@@ -562,24 +478,19 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu_connected, menu);
-        if(!isRemoteMode) {
-            switch (mConnectionState) {
-                case CONNECTED:
-                    menu.findItem(R.id.menu_connect).setVisible(false);
-                    menu.findItem(R.id.menu_disconnect).setVisible(true);
-                    break;
-                case CONNECTING:
-                    menu.findItem(R.id.menu_connect).setVisible(false);
-                    menu.findItem(R.id.menu_disconnect).setVisible(false);
-                    break;
-                case DISCONNECTED:
-                    menu.findItem(R.id.menu_connect).setVisible(true);
-                    menu.findItem(R.id.menu_disconnect).setVisible(false);
-                    break;
-            }
-        } else {
-            menu.findItem(R.id.menu_connect).setVisible(false);
-            menu.findItem(R.id.menu_disconnect).setVisible(false);
+        switch (mConnectionState) {
+            case CONNECTED:
+                menu.findItem(R.id.menu_connect).setVisible(false);
+                menu.findItem(R.id.menu_disconnect).setVisible(true);
+                break;
+            case CONNECTING:
+                menu.findItem(R.id.menu_connect).setVisible(false);
+                menu.findItem(R.id.menu_disconnect).setVisible(false);
+                break;
+            case DISCONNECTED:
+                menu.findItem(R.id.menu_connect).setVisible(true);
+                menu.findItem(R.id.menu_disconnect).setVisible(false);
+                break;
         }
         return true;
     }
@@ -608,7 +519,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     @Override
     public void onBackPressed() {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
         if(fragment instanceof ServicesFragment &&
             ((ServicesFragment) fragment).isCharacteristicViewVisible()) {
             ((ServicesFragment) fragment).backButtonPressed();
@@ -767,7 +678,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     @Override
     public void updateMTUSize(int size) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -776,11 +687,6 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         if (TestFragment.class.isInstance(fragment)) {
             ((TestFragment)fragment).updateMTUSize(size);
         }
-
-        if (RemoteControlFragment.class.isInstance(fragment)) {
-
-            ((RemoteControlFragment)fragment).writeTransferData("MTU size: " + size + "\n\n\r"); //TODO handle here the mtu package relation??
-        }
     }
 
     @Override
@@ -788,7 +694,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         if (mDataPump.isTestRunning() && duration - timeOfLastUiUpdate < 100000000) return;
         timeOfLastUiUpdate = duration;
 
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -801,16 +707,12 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
             if (TestFragment.class.isInstance(fragment)) {
                 ((TestFragment) fragment).updateTxCounter(value, average);
             }
-
-            if (RemoteControlFragment.class.isInstance(fragment) && showTxInRemoteMode) {
-                ((RemoteControlFragment) fragment).writeTxData(value, average);
-            }
         });
     }
 
     @Override
     public void onRx(long bytes, long duration) {
-        Fragment fragment = isRemoteMode ? remoteControlFragment : mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
+        Fragment fragment = mSectionsPagerAdapter.getItem(mViewPager.getCurrentItem());
 
         if (fragment == null) {
             return;
@@ -823,33 +725,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
             if (TestFragment.class.isInstance(fragment)) {
                 ((TestFragment) fragment).updateRxCounter(rxValue, average);
             }
-
-            if (RemoteControlFragment.class.isInstance(fragment) && showRxInRemoteMode) {
-                ((RemoteControlFragment) fragment).writeRxData(rxValue, average);
-            }
         });
-    }
-
-    public void onLastPacketSent() {
-        if (isRemoteMode) {
-            Fragment fragment = remoteControlFragment;
-            if (RemoteControlFragment.class.isInstance(fragment) && !showRxInRemoteMode) {
-                ((RemoteControlFragment)fragment).writeResult();
-            }
-        }
-
-
-    }
-
-    public void disconnectFromDeviceByRemoteControl() {
-        if (mDataPump != null && mBluetoothLeService != null) {
-            mDataPump.stopDataPump();
-            mBluetoothLeService.disconnect();
-            mBluetoothLeService.close();
-            mBluetoothLeService = null;
-            mConnectionState = ConnectionState.DISCONNECTED;
-            runOnUiThread(this::updateStatus);
-        }
     }
 
     public BluetoothLeService getLeService() {
@@ -930,15 +806,15 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
         }
     }
 
-    private class MyBroadcastReceiver implements BluetoothLeServiceReceiver {
+    private class MyBroadcastReceiver implements BluetoothLeService.Receiver {
         @Override
         public void onDescriptorWrite() {
             // TODO check other solution
             runOnUiThread(() -> {
-                if (isRemoteMode && isFirstTimeToSetFifo) {
+                if (false && isFirstTimeToSetFifo) {
                     isFirstTimeToSetFifo = false;
                     mSpsStream.setCredits(characteristicCredits);
-                    if (withCreditsInRemoteMode) {
+                    if (true) {
                         mSpsStream.toggleCreditsConnection(true);
                     }
                     if (!needToWaitForMtuUpdate && !mDataPump.isTestRunning()) {

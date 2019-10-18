@@ -35,7 +35,7 @@ public class BluetoothLeService {
     private boolean supports2MPhy;
     private String mBluetoothDeviceAddress;
     private BluetoothGattRepresentation mBluetoothGatt;
-    private BluetoothLeServiceReceiver mReceiver;
+    private Receiver mReceiver;
 
     private PhyMode txPhyMode = PhyMode.PHY_UNDEFINED;
     private PhyMode rxPhyMode = PhyMode.PHY_UNDEFINED;
@@ -230,7 +230,7 @@ public class BluetoothLeService {
         return true;
     }
 
-    public void register(BluetoothLeServiceReceiver receiver) {
+    public void register(Receiver receiver) {
         mReceiver = receiver;
     }
 
@@ -443,5 +443,16 @@ public class BluetoothLeService {
 
     private void setRxPhyMode(int rxPhy) {
         this.rxPhyMode = PhyMode.fromInteger(rxPhy);
+    }
+
+    public interface Receiver {
+        void onDescriptorWrite();
+        void onPhyAvailable(boolean isUpdate);
+        void onMtuUpdate(int mtu, int status);
+        void onRssiUpdate(int rssi);
+        void onDataAvailable(UUID uUid, int type, byte[] data);
+        void onServicesDiscovered();
+        void onGattDisconnected();
+        void onGattConnected();
     }
 }

@@ -19,18 +19,33 @@ public class SpsStream implements DataStream {
     private BluetoothLeService service;
     private BluetoothGattCharacteristic fifo;
     private BluetoothGattCharacteristic credits;
-    private DataStreamDelegate delegate;
+    private Delegate delegate;
     private boolean withFlowControl;
     private int txCredits;
     private byte[] pendingData;
     private int rxCredits;
 
+    @Override
+    public State getState() {
+        return isReady() ? State.OPENED : State.CLOSED;
+    }
+
     /**
      * Set the delegate to handle responses from async stream requests
      */
     @Override
-    public void setDelegate(DataStreamDelegate delegate) {
+    public void setDelegate(Delegate delegate) {
         this.delegate = delegate;
+    }
+
+    @Override
+    public void open() {
+
+    }
+
+    @Override
+    public void close() {
+
     }
 
     /**
@@ -135,7 +150,7 @@ public class SpsStream implements DataStream {
             }
         } else if (fifo.getUuid().equals(uUid)) {
             rxCredits--;
-            delegate.onRead(data);
+            delegate.dataStreamRead(this, data);
             byte half = MAX_NUMBER_OF_CREDITS / 2;
             if (rxCredits <= half) {
                 rxCredits += half;
@@ -147,7 +162,7 @@ public class SpsStream implements DataStream {
     // callback to handle successful writes to peer
     private void onCharacteristicWrite(UUID uUid, byte[] data) {
         if (fifo.getUuid().equals(uUid)) {
-            delegate.onWrite(data);
+            delegate.dataStreamWrote(this, data);
         }
     }
 

@@ -1,9 +1,7 @@
 package com.ublox.BLE;
 
 import com.ublox.BLE.datapump.DataPump;
-import com.ublox.BLE.datapump.DataPumpDelegate;
 import com.ublox.BLE.datapump.DataStream;
-import com.ublox.BLE.datapump.DataStreamDelegate;
 import com.ublox.BLE.datapump.StopWatch;
 
 import org.junit.Before;
@@ -35,7 +33,7 @@ public class TestDataPump {
     @Test
     public void dataPumpIsNotRunningAfterFinishSendingPacketInSingleMode() {
         pump.startDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(pump.isTestRunning(), equalTo(false));
     }
 
@@ -43,7 +41,7 @@ public class TestDataPump {
     public void dataPumpIsStillRunningAfterSendingPacketInContinuous() {
         pump.setContinuousMode(true);
         pump.startDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(pump.isTestRunning(), equalTo(true));
     }
 
@@ -51,7 +49,7 @@ public class TestDataPump {
     public void dataPumpIsStillRunningWhenSendingSinglePacketLargerThanMtu() {
         pump.setPacketSize(32);
         pump.startDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(pump.isTestRunning(), equalTo(true));
     }
 
@@ -59,14 +57,14 @@ public class TestDataPump {
     public void continuousDoesntRestartStoppedPumpOnCallback() {
         pump.startDataPump();
         pump.stopDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(pump.isTestRunning(), equalTo(false));
     }
 
     @Test
     public void startingDataPumpStartStopWatch() {
         pump.startDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(delegate.lastDuration, greaterThan(0L));
     }
 
@@ -74,59 +72,74 @@ public class TestDataPump {
     public void stoppingDataPumpStopsStopWatch() {
         pump.startDataPump();
         pump.stopDataPump();
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         long duration = delegate.lastDuration;
-        pump.onWrite(new byte[20]);
+        pump.dataStreamWrote(stream, new byte[20]);
         assertThat(delegate.lastDuration, equalTo(duration));
     }
 
     @Test
     public void receivingDataStartsStopWatch() {
-        pump.onRead(new byte[20]);
-        pump.onRead(new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
         assertThat(delegate.lastDuration, greaterThan(0L));
     }
 
     @Test
     public void resetEnsuresReceiveStopWatchIsReset() {
-        pump.onRead(new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
         long duration = delegate.lastDuration;
         pump.resetDataPump();
-        pump.onRead(new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
         assertThat(delegate.lastDuration, lessThanOrEqualTo(duration));
     }
 
     @Test
     public void correctlyKeepTrackOfReportedSentBytes() {
-        pump.onWrite(new byte[20]);
-        pump.onWrite(new byte[12]);
+        pump.dataStreamWrote(stream, new byte[20]);
+        pump.dataStreamWrote(stream, new byte[12]);
         assertThat(delegate.lastBytes, equalTo(32L));
     }
 
     @Test
     public void correctlyKeepTrackOfReceivedBytes() {
-        pump.onRead(new byte[20]);
-        pump.onRead(new byte[20]);
-        pump.onRead(new byte[20]);
-        pump.onRead(new byte[4]);
+        pump.dataStreamRead(stream, new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
+        pump.dataStreamRead(stream, new byte[4]);
         assertThat(delegate.lastBytes, equalTo(64L));
     }
 
     @Test
     public void resetDataPumpResetsReceivedBytes() {
-        pump.onRead(new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
         pump.resetDataPump();
-        pump.onRead(new byte[20]);
+        pump.dataStreamRead(stream, new byte[20]);
         assertThat(delegate.lastBytes, equalTo(20L));
     }
 
     class MockDataStream implements DataStream {
-        DataStreamDelegate delegate;
+        Delegate delegate;
         int writeCalls;
 
         @Override
-        public void setDelegate(DataStreamDelegate delegate) {
+        public State getState() {
+            return null;
+        }
+
+        @Override
+        public void setDelegate(Delegate delegate) {
             this.delegate = delegate;
+        }
+
+        @Override
+        public void open() {
+
+        }
+
+        @Override
+        public void close() {
+
         }
 
         @Override
@@ -135,7 +148,7 @@ public class TestDataPump {
         }
     }
 
-    class MockDataPumpDelegate implements DataPumpDelegate {
+    class MockDataPumpDelegate implements DataPump.Delegate {
         long lastBytes;
         long lastDuration;
 

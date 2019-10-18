@@ -37,8 +37,7 @@
 
     <string name="status_disconnected">disconnected</string>
     <string name="status_connecting">connecting...</string>
-    <string name="status_connected">gatt connected</string>
-    <string name="status_discovered">gatt connected, services discovered</string>
+    <string name="status_discovered">services discovered</string>
     <string name="status_chat_available">chat available</string>
     <string name="status_sps_available">sps available</string>
     <string name="status_fifo_unavailable">fifo characteristc not found!</string>

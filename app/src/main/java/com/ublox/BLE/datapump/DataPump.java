@@ -5,9 +5,9 @@ import android.os.SystemClock;
 /**
  * Class encapsulating data pump test feature based on bluetoothLeService communication
  */
-public class DataPump implements DataStreamDelegate {
+public class DataPump implements DataStream.Delegate {
     private DataStream stream;
-    private DataPumpDelegate dataPumpListener;
+    private Delegate dataPumpListener;
     private boolean isTestRunning;
     private boolean continuousMode;
     private boolean bitErrorActive;
@@ -24,7 +24,7 @@ public class DataPump implements DataStreamDelegate {
      * Constructs a new DataPump over a stream, reporting to a listener and fetching timing events from the NowProvider
      * This is intended for testing purposes to mock out any default systems clocks
      */
-    public DataPump(DataStream stream, DataPumpDelegate dataPumpListener, StopWatch.NowProvider time) {
+    public DataPump(DataStream stream, Delegate dataPumpListener, StopWatch.NowProvider time) {
         this.dataPumpListener = dataPumpListener;
         this.stream = stream;
         stream.setDelegate(this);
@@ -35,15 +35,20 @@ public class DataPump implements DataStreamDelegate {
     /**
      * Constructs a new DataPump over a stream and reporting to a listener with a default NowProvider of android.os.SystemClock.elapsedRealtimeNanos
      */
-    public DataPump(DataStream stream, DataPumpDelegate dataPumpListener) {
+    public DataPump(DataStream stream, Delegate dataPumpListener) {
         this(stream, dataPumpListener, SystemClock::elapsedRealtimeNanos);
+    }
+
+    @Override
+    public void dataStreamChangedState(DataStream stream) {
+
     }
 
     /**
      * Callback for handling async responses from underlying stream
      */
     @Override
-    public void onWrite(byte[] data) {
+    public void dataStreamWrote(DataStream stream, byte[] data) {
         long duration = txTimer.elapsedTime();
         txCounter += data.length;
         isTestRunning = isTestRunning && (continuousMode || sizeOfRemainingPacket != 0);
@@ -57,7 +62,7 @@ public class DataPump implements DataStreamDelegate {
      * Callback for handling async responses from underlying stream
      */
     @Override
-    public void onRead(byte[] data) {
+    public void dataStreamRead(DataStream stream, byte[] data) {
         rxTimer.start();
         if (dataPumpListener != null) {
             rxCounter += data.length;
@@ -164,5 +169,14 @@ public class DataPump implements DataStreamDelegate {
             packet[i] = (bitErrorActive && i == 5) ? (byte) 0 : (byte) data;
         }
         return packet;
+    }
+
+    /**
+     * Interface defining data pump test events
+     */
+    public interface Delegate {
+        void onTx(long bytes, long duration);
+        void onRx(long bytes, long duration);
+        void updateMTUSize(int size);
     }
 }

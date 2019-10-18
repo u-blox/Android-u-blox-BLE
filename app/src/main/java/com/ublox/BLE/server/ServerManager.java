@@ -1,28 +1,19 @@
 package com.ublox.BLE.server;
 
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
 import android.text.TextUtils;
-import android.util.Log;
 
 import com.ublox.BLE.activities.MainActivity;
+import com.ublox.BLE.bluetooth.BluetoothCentral;
+import com.ublox.BLE.bluetooth.BluetoothPeripheral;
+import com.ublox.BLE.datapump.DataPump;
+import com.ublox.BLE.datapump.DataStream;
+import com.ublox.BLE.bluetooth.SpsStream;
 import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
-import com.ublox.BLE.utils.UBloxDevice;
 import com.ublox.BLE.utils.WrongParameterException;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,9 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ServerManager {
-
-    private static final String TAG = ServerManager.class.getSimpleName();
+public class ServerManager implements DataStreamListener.Delegate, DataStream.Delegate, BluetoothCentral.Delegate, DataPump.Delegate {
 
     public static final String UNKNOWN_COMMAND = "Unknown command. Use \"help\" for more details.\n\n\r";
     public static final String COMMAND_HELP = "help";
@@ -47,31 +36,99 @@ public class ServerManager {
     public static final String COMMAND_PARAM_BYTECOUNT = "bytecount=";
     public static final String BUNDLE_MTU = "mtu";
     public static final String BUNDLE_PACKETSIZE = "packetsize";
-    public static final String MESSAGE_DATA = "data";
     public static final String COMMAND_PARAM_CREDITS = "credits";
     public static final String BUNDLE_WITH_CREDITS = "with_credits";
-    private static volatile ServerManager instance;
 
-    private ServerSocket serverSocket;
-    private ServerThread serverThread;
-    private BluetoothAdapter bluetoothAdapter;
+    private DataStreamListener serverSocket;
+    private DataStream client;
+    //private BluetoothAdapter bluetoothAdapter;
+    private BluetoothCentral central;
     private Set<BluetoothDeviceRepresentation> devices;
-    private IRemoteActionsListener mRemoteActionsListener;
+    private Delegate delegate;
     private Map<String, String> helpCommands = new HashMap<>();
-    private Integer port;
-    private boolean isRunning;
     private boolean isScanning;
+    private boolean isTesting;
 
-    private BluetoothAdapter.LeScanCallback mLeScanCallback =
+    private SpsStream dataStream;
+    private DataPump pump;
+
+    private long txCount;
+    private long rxCount;
+    private long txTime;
+    private long rxTime;
+    private long errors;
+
+
+    /*private BluetoothAdapter.LeScanCallback mLeScanCallback =
             new BluetoothAdapter.LeScanCallback() {
                 @Override
                 public void onLeScan(final BluetoothDevice device, final int rssi, byte[] scanRecord) {
                     devices.add(new UBloxDevice(device));
                 }
-            };
+            };*/
 
-    public interface IRemoteActionsListener {
-        void onLogUpdate(String update);
+    @Override
+    public void dataStreamChangedState(DataStream stream) {
+        if (client.getState() != DataStream.State.OPENED) {
+            client = null;
+        }
+    }
+
+    @Override
+    public void dataStreamWrote(DataStream stream, byte[] data) {
+
+    }
+
+    @Override
+    public void dataStreamRead(DataStream stream, byte[] data) {
+        String command = new String(data);
+        command = command.replace("\r\n", "");
+        parseCommand(command);
+    }
+
+    @Override
+    public void dataStreamListenerAccepted(DataStreamListener listener, DataStream stream) {
+        if (client != null) {
+            stream.open();
+            stream.write("Busy. Closing.".getBytes());
+            stream.close();
+        } else {
+            client = stream;
+            client.setDelegate(this);
+            client.open();
+            delegate.serverLogged("Connection established");
+        }
+    }
+
+    @Override
+    public void centralChangedState(BluetoothCentral central) {
+        isScanning = central.getState() == BluetoothCentral.State.SCANNING;
+    }
+
+    @Override
+    public void centralFoundPeripheral(BluetoothCentral central, BluetoothPeripheral peripheral) {
+
+    }
+
+    @Override
+    public void onTx(long bytes, long duration) {
+        txCount = bytes;
+        txTime = duration;
+    }
+
+    @Override
+    public void onRx(long bytes, long duration) {
+        rxCount = bytes;
+        txTime = duration;
+    }
+
+    @Override
+    public void updateMTUSize(int size) {
+
+    }
+
+    public interface Delegate {
+        void serverLogged(String update);
         void onConnectToDevice(Bundle connectInfoBundle);
         boolean isConnected();
         void onDisconnectFromDevice();
@@ -79,21 +136,12 @@ public class ServerManager {
 
     Handler stopScanningHandler = new Handler();
 
-    private ServerManager(BluetoothAdapter bluetoothAdapter) {
-        this.bluetoothAdapter = bluetoothAdapter;
+    public ServerManager(BluetoothCentral central) {
+        //this.bluetoothAdapter = bluetoothAdapter;
+        this.central = central;
+        this.central.setDelegate(this);
         devices = new HashSet<>();
         addHelpCommands();
-    }
-
-    public static ServerManager getInstance(BluetoothAdapter bluetoothAdapter) {
-        if (instance == null) {
-            synchronized (ServerManager.class) {
-                if (instance == null) {
-                    instance = new ServerManager(bluetoothAdapter);
-                }
-            }
-        }
-        return instance;
     }
 
     private void addHelpCommands() {
@@ -112,48 +160,28 @@ public class ServerManager {
     }
 
     public boolean isRunning() {
-        return isRunning;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
+        return serverSocket != null && serverSocket.isListening();
     }
 
     public boolean isBluetoothAdapterEnabled() {
-        return bluetoothAdapter.isEnabled();
+        return true; //bluetoothAdapter.isEnabled();
     }
 
-    public void registerListener(IRemoteActionsListener remoteActionsListener) {
-        this.mRemoteActionsListener = remoteActionsListener;
+    public void registerListener(Delegate remoteActionsListener) {
+        this.delegate = remoteActionsListener;
     }
 
-    public void startServer() {
-        if (port != null && serverThread == null) {
-            try {
-                serverSocket = new ServerSocket();
-                serverSocket.setReuseAddress(true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            serverThread = new ServerThread();
-            serverThread.start();
-            isRunning = true;
-            mRemoteActionsListener.onLogUpdate("Server started");
-        }
+    public void startServer(DataStreamListener listener) {
+        serverSocket = listener;
+        serverSocket.setDelegate(this);
+        serverSocket.startListen();
+        delegate.serverLogged("Server started");
     }
 
     public void stopServer() {
-        if (serverThread != null) {
-            try {
-                serverSocket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            serverThread.interrupt();
-            serverThread = null;
-            isRunning = false;
-            mRemoteActionsListener.onLogUpdate("Server stopped");
-        }
+        if (!isRunning()) return;
+        serverSocket.stopListen();
+        delegate.serverLogged("Server stopped");
     }
 
     private void parseCommand(String line) {
@@ -163,11 +191,11 @@ public class ServerManager {
             switch (buffer[0]) {
                 case COMMAND_HELP:
                     if (buffer.length == 1) {
-                        writeToServer(helpCommands.get("default"));
+                        writeToClient(helpCommands.get("default"));
                     } else if (buffer.length == 2 && helpCommands.containsKey(buffer[1])) {
-                        writeToServer(helpCommands.get(buffer[1]));
+                        writeToClient(helpCommands.get(buffer[1]));
                     } else {
-                        writeToServer(UNKNOWN_COMMAND);
+                        writeToClient(UNKNOWN_COMMAND);
                     }
                     break;
                 case COMMAND_SCAN:
@@ -177,66 +205,106 @@ public class ServerManager {
                         try {
                             startScanDevices(Integer.parseInt(buffer[1]));
                         } catch (NumberFormatException e) {
-                            writeToServer(UNKNOWN_COMMAND);
+                            writeToClient(UNKNOWN_COMMAND);
                         }
                     } else {
-                        writeToServer(UNKNOWN_COMMAND);
+                        writeToClient(UNKNOWN_COMMAND);
                     }
                     break;
                 case COMMAND_TEST:
                     if(buffer.length > 1 ) {
-                        boolean isDeviceFound = false;
+                        /*boolean isDeviceFound = false;
                         for (BluetoothDeviceRepresentation device : devices) {
                             if((!TextUtils.isEmpty(device.getName()) && device.getName().replaceAll(" ", "_").equals(buffer[1].replaceAll(" ", "_")))
                                     || (!TextUtils.isEmpty(device.getAddress()) && device.getAddress().equals(buffer[1]))) {
                                 isDeviceFound = true;
                                 if (mRemoteActionsListener.isConnected()) {
                                     mRemoteActionsListener.onDisconnectFromDevice();
-                                    writeToServer("Test stopped!\n\r");
+                                    writeToClient("Test stopped!\n\r");
                                     try {
                                         Thread.sleep(2000);
                                     } catch (InterruptedException e) {
                                         e.printStackTrace();
                                     }
                                 }
-                                writeToServer("Connecting to device...\n\r");
+                                writeToClient("Connecting to device...\n\r");
                                 try {
+                                    Looper.prepare();
                                     mRemoteActionsListener.onConnectToDevice(createConnectInfoBundle(device, Arrays.asList(buffer)));
                                 } catch(NumberFormatException e) {
-                                    writeToServer(UNKNOWN_COMMAND);
+                                    writeToClient(UNKNOWN_COMMAND);
                                 } catch(ArrayIndexOutOfBoundsException e) {
-                                    writeToServer(UNKNOWN_COMMAND);
+                                    writeToClient(UNKNOWN_COMMAND);
                                 } catch(WrongParameterException e) {
-                                    writeToServer(UNKNOWN_COMMAND);
+                                    writeToClient(UNKNOWN_COMMAND);
                                 }
                                 break;
                             }
                         }
                         if(!isDeviceFound) {
-                            writeToServer("Cannot connect to device " + buffer[1] + "\n\r");
+                            writeToClient("Cannot connect to device " + buffer[1] + "\n\r");
+                        }*/
+                        BluetoothPeripheral peripheral = deviceWith(buffer[1]);
+                        if (peripheral != null) {
+                            TestSettings settings = parseTestSettings(Arrays.asList(buffer));
+                            doTest(peripheral, settings);
+                        } else {
+                            writeToClient("Cannot connect to device " + buffer[1] + "\n\r");
                         }
                     } else {
-                        writeToServer(UNKNOWN_COMMAND);
+                        writeToClient(UNKNOWN_COMMAND);
                     }
                     break;
                 case COMMAND_STOP:
                     if(buffer.length == 1) {
                         if (isScanning) {
-                            writeToServer("Scanning stopped!\n\r");
+                            writeToClient("Scanning stopped!\n\r");
                             stopScanDevices();
                         }
-                        if (mRemoteActionsListener.isConnected()) {
-                            mRemoteActionsListener.onDisconnectFromDevice();
-                            writeToServer("Test stopped!\n\r");
+                        if (isTesting) {
+                            stopTest();
                         }
                     } else {
-                        writeToServer(UNKNOWN_COMMAND);
+                        writeToClient(UNKNOWN_COMMAND);
                     }
                     break;
                 default:
-                    writeToServer(UNKNOWN_COMMAND);
+                    writeToClient(UNKNOWN_COMMAND);
             }
         }
+    }
+
+    private void doTest(BluetoothPeripheral peripheral, TestSettings settings) {
+        dataStream = new SpsStream(peripheral);
+        dataStream.setDelegate(new DataStream.Delegate() {
+            @Override
+            public void dataStreamChangedState(DataStream stream) {
+                if (stream.getState() == DataStream.State.OPENED) {
+                    pump = new DataPump(dataStream, ServerManager.this);
+                    pump.setContinuousMode(true);
+
+                    isTesting = true;
+                    pump.startDataPump();
+                }
+            }
+
+            @Override
+            public void dataStreamWrote(DataStream stream, byte[] data) {}
+            @Override
+            public void dataStreamRead(DataStream stream, byte[] data) {}
+        });
+        dataStream.open();
+    }
+
+    private void stopTest() {
+        pump.stopDataPump();
+        dataStream.close();
+        isTesting = false;
+        pump = null;
+        dataStream = null;
+        String result = "RESULT:\n\r" + "TX: " + txCount + ",  duration: " + txTime +  "\n\r" +
+            "RX: " + rxCount + ",  duration: " + rxTime + ", Errors: " + errors + "\n\r";
+        writeToClient(result);
     }
 
     private Bundle createConnectInfoBundle(BluetoothDeviceRepresentation bluetoothDevice, List<String> testCommandParams) throws WrongParameterException {
@@ -271,15 +339,57 @@ public class ServerManager {
         return bundle;
     }
 
+    private BluetoothPeripheral deviceWith(String id) {
+        for (BluetoothPeripheral peripheral: central.getFoundPeripherals()) {
+            if ((peripheral.name() != null && id.equals(peripheral.name().replaceAll(" ", "_"))) || id.equals(peripheral.identifier())) {
+                return peripheral;
+            }
+        }
+        return null;
+    }
+
+    private TestSettings parseTestSettings(List<String> testCommandParams) {
+        TestSettings settings = new TestSettings();
+
+        for (int i = 2; i < testCommandParams.size(); i++) { // Do not check test command and device name
+            if(testCommandParams.get(i).equals(COMMAND_PARAM_TX)) {
+                settings.showTx = true;
+            } else if(testCommandParams.get(i).equals(COMMAND_PARAM_RX)) {
+                settings.showRx = true;
+            } else if(testCommandParams.get(i).contains(COMMAND_PARAM_PACKAGESIZE)) {
+                int mtuSize = parseInt(testCommandParams.get(i).substring(COMMAND_PARAM_PACKAGESIZE.length()));
+                if(mtuSize > 0) {
+                    settings.prefMtu = mtuSize;
+                }
+            } else if(testCommandParams.get(i).contains(COMMAND_PARAM_BYTECOUNT)) {
+                int packageSize = parseInt(testCommandParams.get(i).substring(COMMAND_PARAM_BYTECOUNT.length()));
+                if (packageSize > 0) {
+                    settings.packetSize = packageSize;
+                }
+            } else if(testCommandParams.get(i).equals(COMMAND_PARAM_CREDITS)) {
+                settings.credits = true;
+            }
+        }
+        return settings;
+    }
+
+    private int parseInt(String str) {
+        try {
+            return Integer.parseInt(str);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     private void startScanDevices(int searchTimeInSeconds) {
         if (searchTimeInSeconds <= 0) {
-            writeToServer("Wrong parameter, check \"help scan\"\n\r");
+            writeToClient("Wrong parameter, check \"help scan\"\n\r");
             return;
         }
         devices.clear();
-        writeToServer("Scanning...\n\n\r");
-        bluetoothAdapter.startLeScan(mLeScanCallback);
-        isScanning = true;
+        writeToClient("Scanning...\n\n\r");
+        //bluetoothAdapter.startLeScan(mLeScanCallback);
+        central.scan(new ArrayList<>());
 
         stopScanningHandler.postDelayed(new Runnable() {
             @Override
@@ -292,131 +402,45 @@ public class ServerManager {
     }
 
 
-    private synchronized void stopScanDevices() {
-        bluetoothAdapter.stopLeScan(mLeScanCallback);
-        isScanning = false;
+    private void stopScanDevices() {
+        //bluetoothAdapter.stopLeScan(mLeScanCallback);
+        central.stop();
         stopScanningHandler.removeCallbacksAndMessages(null);
-        writeToServer("Found peripherals:\n\n\r");
-        writeToServer(writeScannedDevices(devices));
+        writeToClient("Found peripherals:\n\n\r");
+        writeToClient(writeScannedDevices());
     }
 
-    private String writeScannedDevices(Set<BluetoothDeviceRepresentation> devices) {
+    private String writeScannedDevices() {
         StringBuffer deviceInfo = new StringBuffer();
-        for (BluetoothDeviceRepresentation device : devices) {
-            if(!TextUtils.isEmpty(device.getName())) {
-                deviceInfo.append(device.getName().replaceAll(" ", "_"));
+        for (BluetoothPeripheral device : central.getFoundPeripherals()) {
+            if(!TextUtils.isEmpty(device.name())) {
+                deviceInfo.append(device.name().replaceAll(" ", "_"));
                 deviceInfo.append(" ");
             }
-            deviceInfo.append(device.getAddress());
+            deviceInfo.append(device.identifier());
             deviceInfo.append("\n\r");
         }
         deviceInfo.append("\n\r");
         return deviceInfo.toString();
     }
 
-    public void writeToServer(String message) {
-        if (serverThread != null) {
-            serverThread.writeToServer(message);
-        }
+    public void writeToClient(String message) {
+        if (client != null) client.write(message.getBytes());
     }
 
-    public class ServerThread extends Thread {
+    private class TestSettings {
+        public boolean showTx;
+        public boolean showRx;
+        public int prefMtu;
+        public int packetSize;
+        public boolean credits;
 
-        Socket client;
-        BufferedReader reader;
-
-        private WriterRunnable writer;
-
-        public void run() {
-            client = null;
-            try {
-                serverSocket.bind(new InetSocketAddress(port));
-                client = serverSocket.accept();
-
-                String clientAddress = client.getInetAddress().getHostAddress();
-                mRemoteActionsListener.onLogUpdate("Connection established with " + clientAddress);
-                reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
-                writer = new WriterRunnable(client);
-                writer.start();
-
-                String line;
-                try {
-                    while ((line = reader.readLine()) != null && !Thread.currentThread().isInterrupted()) {
-                        parseCommand(line);
-                    }
-                    reader.close();
-                } catch (SocketException se) {
-                    Log.w(TAG, "TCP server stop caused socket closing");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
-                close();
-
-            } catch (SocketException se) {
-                Log.w(TAG,"Closed socket in accepting state!");
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        public void close(){
-            if (client != null) {
-                try {
-                    client.close();
-                    reader.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-            writer.interrupt();
-        }
-
-
-        public void writeToServer(String data) {
-            Bundle bundle = new Bundle();
-            bundle.putString(MESSAGE_DATA, data);
-            Message message = new Message();
-            message.setData(bundle);
-            writer.handler.sendMessage(message);
-        }
-    }
-
-    public class WriterRunnable extends Thread {
-
-        Handler handler;
-        BufferedWriter writer;
-
-        public WriterRunnable(Socket client) throws IOException {
-            writer = new BufferedWriter(new OutputStreamWriter(client.getOutputStream()));
-        }
-
-        @Override
-        public void interrupt() {
-            try {
-                writer.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            handler.removeCallbacksAndMessages(null);
-            super.interrupt();
-        }
-
-        @Override
-        public void run() {
-            Looper.prepare();
-            handler = new Handler() {
-                @Override
-                public void handleMessage(Message msg) {
-                    try {
-                        writer.write(msg.getData().getString(MESSAGE_DATA));
-                        writer.flush();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            };
-            Looper.loop();
+        public TestSettings() {
+            showRx = false;
+            showTx = false;
+            prefMtu = 23;
+            packetSize = 20;
+            credits = false;
         }
     }
 }
