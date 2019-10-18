@@ -50,7 +50,7 @@ public class UBloxDevice implements BluetoothDeviceRepresentation {
         BluetoothGatt gatt;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (phy2M) {
-                gatt = device.connectGatt(context, false, callback, TRANSPORT_LE,PHY_LE_CODED_MASK ^ PHY_LE_2M_MASK);
+                gatt = device.connectGatt(context, false, callback, TRANSPORT_LE,PHY_LE_CODED_MASK ^ PHY_LE_2M_MASK ^ PHY_LE_1M_MASK);
             } else {
                 gatt = device.connectGatt(context, false, callback, TRANSPORT_LE,PHY_LE_CODED_MASK ^ PHY_LE_1M_MASK);
             }

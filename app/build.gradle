@@ -10,8 +10,8 @@ android {
         applicationId "com.ublox.BLE"
         minSdkVersion 18
         targetSdkVersion 28
-        versionCode 15
-        versionName "2.8"
+        versionCode 16
+        versionName "2.8.1"
         vectorDrawables.useSupportLibrary = true
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"

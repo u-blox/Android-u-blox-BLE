@@ -13,6 +13,7 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
+import android.os.Looper;
 import android.support.annotation.RequiresApi;
 import android.util.Log;
 
@@ -274,6 +275,7 @@ public class BluetoothLeService {
         if (address.equals(mBluetoothDeviceAddress) && mBluetoothGatt != null) {
             if (mBluetoothGatt.connect()) {
                 mConnectionState = STATE_CONNECTING;
+                scheduleTimeoutAbort();
                 return true;
             } else {
                 return false;
@@ -283,7 +285,18 @@ public class BluetoothLeService {
         mBluetoothGatt = device.connectGatt(mContext, mGattCallback, supports2MPhy);
         mBluetoothDeviceAddress = address;
         mConnectionState = STATE_CONNECTING;
+        scheduleTimeoutAbort();
         return true;
+    }
+
+    private void scheduleTimeoutAbort() {
+        final long STANDARD_ANDROID_TIMEOUT_MILLIS = 30000;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (mConnectionState != STATE_CONNECTING) return;
+            close();
+            mConnectionState = STATE_DISCONNECTED;
+            broadcastUpdate(ACTION_GATT_DISCONNECTED);
+        }, STANDARD_ANDROID_TIMEOUT_MILLIS);
     }
 
     /**
