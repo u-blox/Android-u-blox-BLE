@@ -39,7 +39,7 @@ public class TestDevicesActivity {
     public ActivityTestRule<DevicesActivity> act = new ActivityTestRule<>(DevicesActivity.class);
 
     @Rule
-    public GrantPermissionRule permissionRule = GrantPermissionRule.grant(Manifest.permission.ACCESS_COARSE_LOCATION);
+    public GrantPermissionRule permissionRule = GrantPermissionRule.grant(Manifest.permission.ACCESS_FINE_LOCATION);
 
     @Ignore("Requires real hardware to test...")
     @Test
