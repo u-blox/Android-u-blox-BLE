@@ -43,7 +43,6 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
     private static final String TAG = DevicesActivity.class.getSimpleName();
     private static final int LOCATION_REQUEST = 255;
     private LeDeviceListAdapter mLeDeviceListAdapter;
-    private BluetoothAdapter mBluetoothAdapter;
     private BluetoothCentral scanner;
 
     private static final int REQUEST_ENABLE_BT = 1;
@@ -64,17 +63,7 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             finish();
         }
 
-        final BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-        mBluetoothAdapter = bluetoothManager.getAdapter();
-
-        // Checks if Bluetooth is supported on the device.
-        if (mBluetoothAdapter == null) {
-            Toast.makeText(this, R.string.error_bluetooth_not_supported, Toast.LENGTH_SHORT).show();
-            finish();
-        }
-
-        scanner = new BluetoothScanner(mBluetoothAdapter);
-        scanner.setDelegate(this);
+        scanner = null;
     }
 
     @Override
@@ -119,14 +108,24 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
     protected void onResume() {
         super.onResume();
 
+        final BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
+
+        // Checks if Bluetooth is supported on the device.
+        if (bluetoothAdapter == null) {
+            Toast.makeText(this, R.string.error_bluetooth_not_supported, Toast.LENGTH_SHORT).show();
+            finish();
+        }
+
         // Ensures Bluetooth is enabled on the device.  If Bluetooth is not currently enabled,
         // fire an intent to display a dialog asking the user to grant permission to enable it.
-        if (!mBluetoothAdapter.isEnabled()) {
-            if (!mBluetoothAdapter.isEnabled()) {
-                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-            }
+        if (!bluetoothAdapter.isEnabled()) {
+            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
         }
+
+        scanner = new BluetoothScanner(bluetoothAdapter);
+        scanner.setDelegate(this);
 
         // Initializes list view adapter.
         mLeDeviceListAdapter = new LeDeviceListAdapter();
