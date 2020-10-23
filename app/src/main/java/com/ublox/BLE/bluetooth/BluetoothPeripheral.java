@@ -1,13 +1,18 @@
 package com.ublox.BLE.bluetooth;
 
+import android.os.Parcelable;
+
 import java.util.List;
 import java.util.UUID;
 
-public interface BluetoothPeripheral {
+public interface BluetoothPeripheral extends Parcelable {
     String identifier();
     String name();
     State getState();
+    int bondState();
     int rssi();
+    boolean advertisedService(UUID service);
+    byte[] serviceDataFor(UUID service);
     void setDelegate(Delegate delegate);
 
     void connect();
@@ -23,9 +28,11 @@ public interface BluetoothPeripheral {
 
     void readRssi();
     void setPreferredMtu(int mtu);
+    void requestConnectionPriority(Priority priority);
     int maximumDataCount(boolean withResponse);
 
     enum State {DISCONNECTED, CONNECTED, ERROR}
+    enum Priority {BALANCED, LOW, HIGH}
 
     interface Delegate {
         void bluetoothPeripheralChangedState(BluetoothPeripheral peripheral);

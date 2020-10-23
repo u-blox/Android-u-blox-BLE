@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="SimpleGraph">
+        <attr name="graphColor" format="color" />
+        <attr name="graphThickness" format="float" />
+        <attr name="fillUnder" format="boolean" />
+        <attr name="yAxisLabel" format="string" />
+        <attr name="xAxisLabel" format="string" />
+        <attr name="yStartingMin" format="float" />
+        <attr name="yStartingMax" format="float" />
+        <attr name="xStartingMin" format="float" />
+        <attr name="xStartingMax" format="float" />
+    </declare-styleable>
+</resources>

@@ -1,1 +1,3 @@
 include ':app'
+include ':meshprovision'
+project(':meshprovision').projectDir = file('Android-nRF-Mesh-Library/android-nrf-mesh-library/meshprovisioner')

@@ -8,7 +8,11 @@ import android.bluetooth.BluetoothGattService;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Parcel;
+import android.os.ParcelUuid;
+import android.os.Parcelable;
 
+import com.ublox.BLE.utils.GattAttributes;
 import com.ublox.BLE.utils.UBloxDevice;
 
 import java.util.ArrayList;
@@ -20,9 +24,13 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 
+import static android.bluetooth.BluetoothDevice.PHY_LE_1M_MASK;
 import static android.bluetooth.BluetoothDevice.PHY_LE_2M_MASK;
 import static android.bluetooth.BluetoothDevice.PHY_LE_CODED_MASK;
 import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
+import static android.bluetooth.BluetoothGatt.CONNECTION_PRIORITY_BALANCED;
+import static android.bluetooth.BluetoothGatt.CONNECTION_PRIORITY_HIGH;
+import static android.bluetooth.BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER;
 import static android.bluetooth.BluetoothGatt.GATT_SUCCESS;
 import static android.bluetooth.BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
 import static android.bluetooth.BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE;
@@ -32,10 +40,11 @@ import static android.bluetooth.BluetoothProfile.STATE_CONNECTED;
 import static android.bluetooth.BluetoothProfile.STATE_DISCONNECTED;
 
 public class BluetoothDevice extends BluetoothGattCallback implements BluetoothPeripheral {
-    static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    static final UUID CCCD = UUID.fromString(GattAttributes.CLIENT_CHARACTERISTIC_CONFIG);
 
     private android.bluetooth.BluetoothDevice device;
     private BluetoothGatt connection;
+    private Map<UUID, byte[]> serviceData;
     private Map<UUID, BluetoothGattCharacteristic> characteristicCache;
     private ActionQueue queue;
     private State state;
@@ -44,18 +53,24 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
     private int maximumData;
     private Delegate delegate;
 
-    public BluetoothDevice(android.bluetooth.BluetoothDevice device, int rssi) {
+    public BluetoothDevice(android.bluetooth.BluetoothDevice device) {
         this.device = device;
         state = State.DISCONNECTED;
-        this.rssi = rssi;
         preferredMtu = 23;
         maximumData = 20;
+        serviceData = new HashMap<>();
         characteristicCache = new HashMap<>();
         queue = new ActionQueue();
     }
 
-    public void updateAdvertisement(int rssi) {
+    public void updateAdvertisement(int rssi, Map<UUID, byte[]> services) {
         this.rssi = rssi;
+        for (UUID uuid: services.keySet()) {
+            byte[] data = serviceData.get(uuid);
+            if (data == null || data.length == 0) {
+                serviceData.put(uuid, services.get(uuid));
+            }
+        }
     }
 
     @Override
@@ -74,8 +89,24 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
     }
 
     @Override
+    public int bondState() {
+        return device.getBondState();
+    }
+
+    @Override
     public int rssi() {
         return rssi;
+    }
+
+    @Override
+    public boolean advertisedService(UUID service) {
+        return serviceData.containsKey(service);
+    }
+
+    @Override
+    public byte[] serviceDataFor(UUID service) {
+        byte[] data = serviceData.get(service);
+        return data != null ? Arrays.copyOf(data, data.length) : new byte[0];
     }
 
     @Override
@@ -89,16 +120,40 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
 
         int sdkInt = Build.VERSION.SDK_INT;
         if (sdkInt >= Build.VERSION_CODES.O) {
-            connection = device.connectGatt(null, true, this, TRANSPORT_LE, PHY_LE_2M_MASK | PHY_LE_CODED_MASK);
+            connection = device.connectGatt(null, true, this, TRANSPORT_LE, PHY_LE_1M_MASK | PHY_LE_2M_MASK | PHY_LE_CODED_MASK);
         } else if (sdkInt >= Build.VERSION_CODES.M) {
             connection = device.connectGatt(null, true, this, TRANSPORT_LE);
         } else {
             connection = device.connectGatt(null, true, this);
         }
 
-        if (!connection.connect()) {
-            new Handler(Looper.getMainLooper()).post(() -> setState(State.ERROR));
+        if (attemptConnection()) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (state == State.CONNECTED) return;
+                connection.disconnect();
+                attemptConnection();
+            }, 30000);
         }
+    }
+
+    private boolean attemptConnection() {
+        if (connection.connect()) {
+            return true;
+        } else {
+            failConnection();
+            return false;
+        }
+    }
+
+    private void failConnection() {
+        cleanupConnection();
+        new Handler(Looper.getMainLooper()).post(() -> setState(State.ERROR));
+    }
+
+    private void cleanupConnection() {
+        if (connection == null) return;
+        connection.close();
+        connection = null;
     }
 
     @Override
@@ -149,27 +204,24 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
     @Override
     public void set(UUID characteristic, boolean notify) {
         BluetoothGattCharacteristic gatt = characteristicCache.get(characteristic);
-        if (gatt != null) {
-            BluetoothGattDescriptor descriptor = gatt.getDescriptor(CCCD);
-            if (descriptor != null) {
-                queue.enqueue(() -> {
-                    descriptor.setValue(notify ? ENABLE_NOTIFICATION_VALUE : DISABLE_NOTIFICATION_VALUE);
-                    return connection.writeDescriptor(descriptor);
-                });
-            }
-        }
+        if (gatt == null) return;
+        BluetoothGattDescriptor descriptor = gatt.getDescriptor(CCCD);
+        if (descriptor == null) return;
+        queue.enqueue(() -> {
+            descriptor.setValue(notify ? ENABLE_NOTIFICATION_VALUE : DISABLE_NOTIFICATION_VALUE);
+            return connection.writeDescriptor(descriptor);
+        });
     }
 
     @Override
     public void write(UUID characteristic, byte[] data, boolean withResponse) {
         BluetoothGattCharacteristic gatt = characteristicCache.get(characteristic);
-        if (gatt != null) {
-            queue.enqueue(() -> {
-                gatt.setValue(Arrays.copyOf(data, data.length));
-                gatt.setWriteType(withResponse ? WRITE_TYPE_DEFAULT : WRITE_TYPE_NO_RESPONSE);
-                return connection.writeCharacteristic(gatt);
-            });
-        }
+        if (gatt == null) return;
+        queue.enqueue(() -> {
+            gatt.setValue(Arrays.copyOf(data, data.length));
+            gatt.setWriteType(withResponse ? WRITE_TYPE_DEFAULT : WRITE_TYPE_NO_RESPONSE);
+            return connection.writeCharacteristic(gatt);
+        });
 
     }
 
@@ -194,35 +246,46 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
     }
 
     @Override
+    public void requestConnectionPriority(Priority priority) {
+        if (state == State.CONNECTED && Build.VERSION.SDK_INT >= 21) {
+            int prio;
+            switch (priority) {
+                case HIGH: prio = CONNECTION_PRIORITY_HIGH; break;
+                case LOW: prio = CONNECTION_PRIORITY_LOW_POWER; break;
+                default: prio = CONNECTION_PRIORITY_BALANCED;
+            }
+            queue.enqueue(() -> {
+                connection.requestConnectionPriority(prio);
+                return false;
+            });
+        }
+    }
+
+    @Override
     public int maximumDataCount(boolean withResponse) {
         return maximumData;
     }
 
     private void setState(State newState) {
         if (state == newState) return;
-        if (newState != State.CONNECTED) characteristicCache.clear();
         state = newState;
         if (delegate != null) delegate.bluetoothPeripheralChangedState(this);
     }
 
     @Override
     public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-        if (status != GATT_SUCCESS) {
-            connection.close();
-            connection = null;
-            setState(State.ERROR);
-        } else if (newState == STATE_CONNECTED) {
+        if (status == GATT_SUCCESS && newState == STATE_CONNECTED) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
                 setState(State.CONNECTED);
             } else {
                 queue.enqueue(() -> connection.requestMtu(preferredMtu));
             }
         } else {
-            if (newState == STATE_DISCONNECTED) {
-                connection.close();
-                connection = null;
+            if (status != GATT_SUCCESS || newState == STATE_DISCONNECTED) {
+                cleanupConnection();
             }
-            setState(State.DISCONNECTED);
+            characteristicCache.clear();
+            setState(status != GATT_SUCCESS ? State.ERROR : State.DISCONNECTED);
         }
     }
 
@@ -286,6 +349,51 @@ public class BluetoothDevice extends BluetoothGattCallback implements BluetoothP
         if (delegate != null) delegate.bluetoothPeripheralReadRssi(this, ok);
         queue.finishCurrent();
     }
+
+    @Override
+    public int describeContents() {
+        return device.describeContents();
+    }
+
+    @Override
+    public void writeToParcel(Parcel parcel, int flags) {
+        device.writeToParcel(parcel, flags);
+        parcel.writeInt(rssi);
+        parcel.writeInt(serviceData.size());
+        for (UUID uuid : serviceData.keySet()) {
+            ParcelUuid puuid = new ParcelUuid(uuid);
+            puuid.writeToParcel(parcel, flags);
+            byte[] data = serviceDataFor(uuid);
+            parcel.writeInt(data.length);
+            parcel.writeByteArray(data);
+        }
+    }
+
+    public static Parcelable.Creator<BluetoothDevice> CREATOR = new Parcelable.Creator<BluetoothDevice>() {
+
+        @Override
+        public BluetoothDevice createFromParcel(Parcel parcel) {
+            BluetoothDevice device = new BluetoothDevice(
+                android.bluetooth.BluetoothDevice.CREATOR.createFromParcel(parcel)
+            );
+            device.rssi = parcel.readInt();
+            int n = parcel.readInt();
+            for (int i = 0; i < n; i++) {
+                ParcelUuid puuid = ParcelUuid.CREATOR.createFromParcel(parcel);
+                int length = parcel.readInt();
+                byte[] data = new byte[length];
+                parcel.readByteArray(data);
+                device.serviceData.put(puuid.getUuid(), data);
+            }
+
+            return device;
+        }
+
+        @Override
+        public BluetoothDevice[] newArray(int size) {
+            return new BluetoothDevice[size];
+        }
+    };
 
     @Deprecated
     public UBloxDevice toUbloxDevice() {

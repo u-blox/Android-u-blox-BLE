@@ -1,39 +1,44 @@
 package com.ublox.BLE;
 
 import android.Manifest;
-import android.app.Activity;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.espresso.IdlingRegistry;
+import android.bluetooth.BluetoothDevice;
+import android.support.test.espresso.PerformException;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.rule.GrantPermissionRule;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.test.runner.lifecycle.ActivityLifecycleMonitorRegistry;
-import android.widget.ListView;
 
 import com.ublox.BLE.activities.DevicesActivity;
-import com.ublox.BLE.activities.MainActivity;
+import com.ublox.BLE.bluetooth.BluetoothCentral;
+import com.ublox.BLE.bluetooth.BluetoothPeripheral;
+import com.ublox.BLE.utils.GattAttributes;
 
-import org.junit.After;
-import org.junit.Ignore;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.Iterator;
+import java.lang.reflect.Field;
+import java.util.UUID;
 
 import static android.support.test.espresso.Espresso.onData;
 import static android.support.test.espresso.Espresso.onView;
 import static android.support.test.espresso.action.ViewActions.click;
+import static android.support.test.espresso.action.ViewActions.closeSoftKeyboard;
+import static android.support.test.espresso.action.ViewActions.typeText;
 import static android.support.test.espresso.assertion.ViewAssertions.matches;
 import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
-import static android.support.test.runner.lifecycle.Stage.RESUMED;
 import static com.ublox.BLE.EspressoExtensions.withDevice;
+import static com.ublox.BLE.Wait.waitFor;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @RunWith(AndroidJUnit4.class)
 public class TestDevicesActivity {
-    DeviceDiscoverIdler waitForDevice = null;
-    DeviceConnectionIdler waitForConnect = null;
+    BluetoothCentral mockScanner;
 
     @Rule
     public ActivityTestRule<DevicesActivity> act = new ActivityTestRule<>(DevicesActivity.class);
@@ -41,36 +46,15 @@ public class TestDevicesActivity {
     @Rule
     public GrantPermissionRule permissionRule = GrantPermissionRule.grant(Manifest.permission.ACCESS_COARSE_LOCATION);
 
-    @Ignore("Requires real hardware to test...")
-    @Test
-    public void findDeviceInList() {
-        onView(withId(R.id.menu_scan)).perform(click());
-        DeviceDiscoverIdler awaitData = new DeviceDiscoverIdler(
-            "E8:47:5E:19:6A:06",
-            ((ListView) act.getActivity().findViewById(R.id.lvDevices)).getAdapter(),
-            (long) 10000
-        );
-        IdlingRegistry.getInstance().register(awaitData);
-        onData(withDevice("E8:47:5E:19:6A:06")).check(matches(isDisplayed()));
-        IdlingRegistry.getInstance().unregister(awaitData);
-    }
+    @Before
+    public void setup() {
+        mockScanner = mock(BluetoothCentral.class);
 
-    @Ignore("Requires real hardware to test...")
-    @Test
-    public void connectToDevice() {
-        onView(withId(R.id.menu_scan)).perform(click());
-        waitForDevice = new DeviceDiscoverIdler(
-            "E8:47:5E:19:6A:06",
-            ((ListView) act.getActivity().findViewById(R.id.lvDevices)).getAdapter(),
-            (long) 10000
-        );
-        IdlingRegistry.getInstance().register(waitForDevice);
-
-        onData(withDevice("E8:47:5E:19:6A:06")).perform(click());
-
-        waitForConnect = new DeviceConnectionIdler(getMainActivity(), (long) 10000);
-        IdlingRegistry.getInstance().register(waitForConnect);
-        onView(withId(R.id.menu_disconnect)).check(matches(isDisplayed()));
+        try {
+            replaceScannerViaReflection();
+        } catch (Exception e) {
+            throw new RuntimeException("Could not mock scanner");
+        }
     }
 
     @Test
@@ -80,44 +64,156 @@ public class TestDevicesActivity {
     }
 
     @Test
-    public void startScan() {
+    public void startCallsScan() {
         onView(withId(R.id.menu_scan)).perform(click());
+        verify(mockScanner, atLeastOnce()).scan(any());
+    }
+
+    @Test
+    public void whenScanStartedDisplayStop() {
+        when(mockScanner.getState()).thenReturn(BluetoothCentral.State.SCANNING);
+        act.getActivity().centralChangedState(mockScanner);
+
         onView(withId(R.id.menu_stop)).check(matches(isDisplayed()));
     }
 
     @Test
-    public void stopScan() {
-        onView(withId(R.id.menu_scan)).perform(click());
+    public void stopCallsStopOnScan() {
+        when(mockScanner.getState()).thenReturn(BluetoothCentral.State.SCANNING);
+        act.getActivity().centralChangedState(mockScanner);
         onView(withId(R.id.menu_stop)).perform(click());
+        verify(mockScanner, atLeastOnce()).stop();
+    }
+
+    @Test
+    public void whenStoppedDisplayScanAgain() {
+        when(mockScanner.getState()).thenReturn(
+            BluetoothCentral.State.SCANNING,
+            BluetoothCentral.State.ON
+        );
+        act.getActivity().centralChangedState(mockScanner);
+        //ToDo: timing-dependant test, figure out a better way.
+        waitFor(1000);
+        act.getActivity().centralChangedState(mockScanner);
+
         onView(withId(R.id.menu_scan)).check(matches(isDisplayed()));
     }
 
-    @After
-    public void unregisterIdlers() {
-        IdlingRegistry registry = IdlingRegistry.getInstance();
-        if (waitForDevice != null) {
-            registry.unregister(waitForDevice);
-            waitForDevice = null;
-        }
-        if (waitForConnect != null) {
-            registry.unregister(waitForConnect);
-            waitForConnect = null;
-        }
+    @Test
+    public void displayScannedPeripherals() {
+        listMockedPeripherals();
+
+        onData(withDevice("00:00:00:00:00:04")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:03")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:02")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:01")).check(matches(isDisplayed()));
     }
 
-    private MainActivity getMainActivity() {
-        final MainActivity[] mainAct = new MainActivity[1];
-        InstrumentationRegistry
-            .getInstrumentation()
-            .runOnMainSync(()->{
-                Iterator < Activity > acts = ActivityLifecycleMonitorRegistry
-                    .getInstance()
-                    .getActivitiesInStage(RESUMED)
-                    .iterator();
-                if (acts.hasNext()) {
-                    mainAct[0] = (MainActivity) acts.next();
-                }
-            });
-        return mainAct[0];
+    @Test
+    public void filterWithSps() {
+        listMockedPeripherals();
+        onView(withId(R.id.checkBoxSps)).perform(click());
+
+        onData(withDevice("00:00:00:00:00:02")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:01")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void filterDevicesAreSavedAnyway() {
+        onView(withId(R.id.checkBoxSps)).perform(click());
+        listMockedPeripherals();
+        onView(withId(R.id.checkBoxSps)).perform(click());
+
+        onData(withDevice("00:00:00:00:00:04")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:03")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:02")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:01")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void filterOnName() {
+        listMockedPeripherals();
+
+        onView(withId(R.id.filterText)).perform(typeText("u-blox"), closeSoftKeyboard());
+
+
+        onData(withDevice("00:00:00:00:00:03")).check(matches(isDisplayed()));
+        onData(withDevice("00:00:00:00:00:01")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void filterNameAlsoWorksOnAddress() {
+        listMockedPeripherals();
+
+        onView(withId(R.id.filterText)).perform(typeText(":02"), closeSoftKeyboard());
+
+        onData(withDevice("00:00:00:00:00:02")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void filterCombineNameAndSps() {
+        listMockedPeripherals();
+
+        onView(withId(R.id.checkBoxSps)).perform(click());
+        onView(withId(R.id.filterText)).perform(typeText("u-blox"), closeSoftKeyboard());
+
+        onData(withDevice("00:00:00:00:00:01")).check(matches(isDisplayed()));
+    }
+
+
+    @Test()
+    public void connect() {
+        listMockedPeripherals();
+        try {
+            onData(withDevice("00:00:00:00:00:01")).perform(click());
+
+            throw new RuntimeException("Expected ClassCastException not thrown");
+        } catch (PerformException e) {
+            //ToDo: for the time being connecting will cast, since our mock won't cast we'll get an exception
+            //in reality we'd like to verify that an intent was sent
+            if (!(e.getCause() instanceof ClassCastException)) throw new RuntimeException("Expected ClassCastException not thrown");
+        }
+
+        verify(mockScanner, atLeastOnce()).stop();
+    }
+
+    private void replaceScannerViaReflection() throws Exception {
+        DevicesActivity actActivity = act.getActivity();
+
+        Class<DevicesActivity> devicesActivityClass = DevicesActivity.class;
+
+        Field scanner = devicesActivityClass.getDeclaredField("scanner");
+
+        scanner.setAccessible(true);
+        scanner.set(actActivity, mockScanner);
+        scanner.setAccessible(false);
+    }
+
+    private void listMockedPeripherals() {
+        when(mockScanner.getState()).thenReturn(BluetoothCentral.State.SCANNING);
+        onView(withId(R.id.menu_scan)).perform(click());
+
+        BluetoothPeripheral namedWithSps = mockPeripheral("00:00:00:00:00:01", "u-blox Device", true);
+        BluetoothPeripheral unnamedWithSps = mockPeripheral("00:00:00:00:00:02", null, true);
+        BluetoothPeripheral namedWithoutSps = mockPeripheral("00:00:00:00:00:03", "u-blox Device", false);
+        BluetoothPeripheral unnamedWithoutSps = mockPeripheral("00:00:00:00:00:04", null, false);
+
+        DevicesActivity activity = act.getActivity();
+        activity.centralFoundPeripheral(mockScanner, namedWithSps);
+        activity.centralFoundPeripheral(mockScanner, unnamedWithSps);
+        activity.centralFoundPeripheral(mockScanner, namedWithoutSps);
+        activity.centralFoundPeripheral(mockScanner, unnamedWithoutSps);
+    }
+
+    private BluetoothPeripheral mockPeripheral(String id, String name, boolean sps) {
+        BluetoothPeripheral peripheral = mock(BluetoothPeripheral.class);
+
+        when(peripheral.bondState()).thenReturn(BluetoothDevice.BOND_NONE);
+        when(peripheral.rssi()).thenReturn(-50);
+        when(peripheral.identifier()).thenReturn(id);
+        when(peripheral.name()).thenReturn(name);
+        when(peripheral.advertisedService(UUID.fromString(GattAttributes.UUID_SERVICE_SERIAL_PORT))).thenReturn(sps);
+
+        return peripheral;
     }
 }

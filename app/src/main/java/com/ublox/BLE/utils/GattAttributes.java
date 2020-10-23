@@ -67,6 +67,10 @@ public class GattAttributes {
 
     public static String CLIENT_CHARACTERISTIC_CONFIG = String.format(UUID_MASK, "2902");
 
+    public static String UUID_SERVICE_MESH_PROXY = String.format(UUID_MASK, "1828");
+    public static String UUID_CHARACTERISTIC_MESH_PROXY_DATA_IN = String.format(UUID_MASK, "2add");
+    public static String UUID_CHARACTERISTIC_MESH_PROXY_DATA_OUT = String.format(UUID_MASK, "2ade");
+
     static {
         attributes.put(String.format(UUID_MASK, "180d"), "Heart Rate Service");
         attributes.put(String.format(UUID_MASK, "180a"), "Device Information Service");
@@ -130,6 +134,10 @@ public class GattAttributes {
 
         attributes.put(UUID_SERVICE_GENERIC_ATTRIBUTE       , "Generic Attribute");
         attributes.put(UUID_CHARACTERISTIC_SERVICE_CHANGED  , "Service Changed");
+
+        attributes.put(UUID_SERVICE_MESH_PROXY, "Mesh Proxy");
+        attributes.put(UUID_CHARACTERISTIC_MESH_PROXY_DATA_IN, "Mesh Proxy Data In");
+        attributes.put(UUID_CHARACTERISTIC_MESH_PROXY_DATA_OUT, "Mesh Proxy Data Out");
     }
 
     public static String lookup(String uuid, String defaultName) {

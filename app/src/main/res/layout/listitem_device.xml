@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:orientation="horizontal"
     android:layout_width="match_parent"
     android:layout_height="wrap_content" >
@@ -33,7 +34,7 @@
 
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_weight="3"
         android:orientation="vertical"
@@ -66,6 +67,18 @@
             android:visibility="visible" />
 
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvMesh"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/activity_horizontal_margin"
+        android:layout_marginEnd="@dimen/activity_horizontal_margin"
+        android:layout_weight="1"
+        android:text="@string/mesh_proxy"
+        android:textAlignment="textEnd"
+        android:textColor="@color/ublox_blue_color"
+        android:visibility="gone" />
 
 
     <!--<CheckBox-->

@@ -13,7 +13,10 @@ import android.os.Looper;
 import android.os.ParcelUuid;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeScanCallback {
@@ -31,7 +34,18 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
             callback = new ScanCallback() {
                 @Override
                 public void onScanResult(int callbackType, ScanResult result) {
-                    onLeScan(result.getDevice(), result.getRssi(), result.getScanRecord().getBytes());
+                    Map<UUID, byte[]> services = new HashMap<>();
+                    List<ParcelUuid> serviceUuids = result.getScanRecord().getServiceUuids();
+                    if (serviceUuids != null) {
+                        for (ParcelUuid puuid : serviceUuids) {
+                            services.put(puuid.getUuid(), new byte[0]);
+                        }
+                    }
+                    Map<ParcelUuid, byte[]> serviceData = result.getScanRecord().getServiceData();
+                    for (ParcelUuid puuid : serviceData.keySet()) {
+                        services.put(puuid.getUuid(),serviceData.get(puuid));
+                    }
+                    onPeripheralScan(result.getDevice(), result.getRssi(), services);
                 }
 
                 @Override
@@ -100,13 +114,16 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
 
     @Override
     public void onLeScan(android.bluetooth.BluetoothDevice device, int rssi, byte[] scanRecord) {
+        onPeripheralScan(device, rssi, parseServices(scanRecord));
+    }
+
+    private void onPeripheralScan(android.bluetooth.BluetoothDevice device, int rssi, Map<UUID, byte[]> advertisedServices) {
         BluetoothDevice found = deviceWith(device.getAddress());
         if (found == null) {
-            found = new BluetoothDevice(device, rssi);
+            found = new BluetoothDevice(device);
             foundPeripherals.add(found);
-        } else {
-            found.updateAdvertisement(rssi);
         }
+        found.updateAdvertisement(rssi, advertisedServices);
         BluetoothPeripheral peripheral = found;
         delegateOnMain(d-> d.centralFoundPeripheral(this, peripheral));
     }
@@ -136,6 +153,69 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
         if (delegate == null) return;
         Handler main = new Handler(Looper.getMainLooper());
         main.post(() -> consumer.consume(delegate));
+    }
+
+    /*No way around it, for supporting lower API devices (<21) we need to parse out services ourselves*/
+    @Deprecated
+    private Map<UUID, byte[]> parseServices(byte[] scanRecord) {
+        int offset = 0;
+        HashMap<UUID, byte[]> services = new HashMap<>();
+        while (offset < scanRecord.length) {
+            int length = offset + scanRecord[offset] + 1;
+            offset++;
+            byte type = scanRecord[offset++];
+            switch (type) {
+                case 2: case 3: parseServiceUuids(scanRecord, offset, length, 2, services); break;
+                case 4: case 5: parseServiceUuids(scanRecord, offset, length, 4, services); break;
+                case 6: case 7: parseServiceUuids(scanRecord, offset, length, 16, services); break;
+                case 0x16: parseServiceData(scanRecord, offset, length, 2, services); break;
+                case 0x20: parseServiceData(scanRecord, offset, length, 4, services); break;
+                case 0x21: parseServiceData(scanRecord, offset, length, 16, services); break;
+            }
+            offset = length;
+        }
+        return services;
+    }
+
+    @Deprecated
+    private void parseServiceUuids(byte[] record, int offset, int length, int uuidLength, Map<UUID, byte[]> services) {
+        for (int i = offset; i < length; i += uuidLength) {
+            UUID uuid = parseUUID(record, i, uuidLength);
+            if (!services.containsKey(uuid)) {
+                services.put(uuid, new byte[0]);
+            }
+        }
+    }
+
+    @Deprecated
+    private void parseServiceData(byte[] record, int offset, int length, int uuidLength, HashMap<UUID, byte[]> services) {
+        UUID uuid = parseUUID(record, offset, uuidLength);
+        offset += uuidLength;
+        byte[] data = Arrays.copyOfRange(record, offset, length);
+        services.put(uuid, data);
+    }
+
+    @Deprecated
+    private UUID parseUUID(byte[] record, int offset, int length) {
+        long msb = length == 16
+            ? fromBytesReverse(record, offset + 8, 8)
+            : 0x0000000000001000L + (fromBytesReverse(record, offset, length) << 32);
+
+        long lsb = length == 16
+            ? fromBytesReverse(record, offset, 8)
+            : 0x800000805F9B34FBL;
+
+        return new UUID(msb, lsb);
+    }
+
+    @Deprecated
+    private long fromBytesReverse(byte[] bytes, int offset, int length) {
+        long value = 0L;
+        for (int i = offset + length - 1; i >= offset; i--) {
+            value <<= 8;
+            value += (bytes[i] & 0xFF);
+        }
+        return value;
     }
 
     private interface DelegateConsumer {

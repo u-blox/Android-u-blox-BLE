@@ -10,7 +10,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
-import android.util.Log;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -18,6 +19,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -25,30 +28,51 @@ import android.widget.Toast;
 
 import com.ublox.BLE.R;
 import com.ublox.BLE.bluetooth.BluetoothCentral;
+import com.ublox.BLE.bluetooth.BluetoothDevice;
 import com.ublox.BLE.bluetooth.BluetoothPeripheral;
 import com.ublox.BLE.bluetooth.BluetoothScanner;
-import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
+import com.ublox.BLE.fragments.KeyEntryFragment;
+import com.ublox.BLE.utils.GattAttributes;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.UUID;
 
 import static android.Manifest.permission.ACCESS_COARSE_LOCATION;
 import static android.bluetooth.BluetoothDevice.BOND_BONDED;
 import static android.bluetooth.BluetoothDevice.BOND_BONDING;
 import static android.bluetooth.BluetoothDevice.BOND_NONE;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static no.nordicsemi.android.meshprovisioner.utils.SecureUtils.calculateK3;
 
 public class DevicesActivity extends Activity implements AdapterView.OnItemClickListener, BluetoothCentral.Delegate {
+    /*
+     * Experimental mesh features have been disabled.
+     * You can re-enable them by setting this flag to true and re-compile.
+     * Warning: Mesh features are very unstable and may provide a bad user experience.
+     */
+    private static boolean DEFINE_MESH_ACTIVE = false;
 
-    private static final String TAG = DevicesActivity.class.getSimpleName();
+    private static final UUID SPS_SERVICE = UUID.fromString(GattAttributes.UUID_SERVICE_SERIAL_PORT);
+    private static final UUID MESH_SERVICE = UUID.fromString(GattAttributes.UUID_SERVICE_MESH_PROXY);
     private static final int LOCATION_REQUEST = 255;
+    private static final byte[] DEFAULT_NET_KEY = { 0x5F, 0x5F, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x50};
+    private static final byte[] DEFAULT_APP_KEY = { 0x5F, 0x11, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x5F};
+
     private LeDeviceListAdapter mLeDeviceListAdapter;
     private BluetoothAdapter mBluetoothAdapter;
     private BluetoothCentral scanner;
+    private byte[] currentNetworkId = calculateK3(DEFAULT_NET_KEY);
+    private byte[] currentNetKey = DEFAULT_NET_KEY;
+    private byte[] currentAppKey = DEFAULT_APP_KEY;
 
     private static final int REQUEST_ENABLE_BT = 1;
 
     public static final String EXTRA_DEVICE = "device";
+    public static final String EXTRA_NET_KEY = "netKey";
+    public static final String EXTRA_APP_KEY = "appKey";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,6 +97,33 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             finish();
         }
 
+        ((TextView) findViewById(R.id.filterText)).addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                mLeDeviceListAdapter.setFreeTextFilter(s.toString());
+            }
+        });
+
+        ((CheckBox) findViewById(R.id.checkBoxSps)).setOnCheckedChangeListener((checkBox, isChecked) -> {
+            mLeDeviceListAdapter.setSpsFilter(isChecked);
+        });
+
+        if (DEFINE_MESH_ACTIVE) {
+            CheckBox meshCheckBox = findViewById(R.id.checkBoxMesh);
+            meshCheckBox.setVisibility(View.VISIBLE);
+            meshCheckBox.setOnCheckedChangeListener((checkBox, isChecked) -> {
+                mLeDeviceListAdapter.setMeshFilter(isChecked);
+            });
+        }
+
         scanner = new BluetoothScanner(mBluetoothAdapter);
         scanner.setDelegate(this);
     }
@@ -80,6 +131,9 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu_devices, menu);
+        if (DEFINE_MESH_ACTIVE) {
+            menu.findItem(R.id.menu_mesh_keys).setVisible(true);
+        }
         if (scanner.getState() != BluetoothScanner.State.SCANNING) {
             menu.findItem(R.id.menu_stop).setVisible(false);
             menu.findItem(R.id.menu_scan).setVisible(true);
@@ -111,6 +165,10 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
                 scanLeDevice(false);
                 Intent aboutIntent = new Intent(this, AboutActivity.class);
                 startActivity(aboutIntent);
+                break;
+            case R.id.menu_mesh_keys:
+                showMeshDialog(null);
+                break;
         }
         return true;
     }
@@ -130,6 +188,10 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
 
         // Initializes list view adapter.
         mLeDeviceListAdapter = new LeDeviceListAdapter();
+        mLeDeviceListAdapter.setFreeTextFilter(((EditText) findViewById(R.id.filterText)).getText().toString());
+        mLeDeviceListAdapter.setSpsFilter(((CheckBox) findViewById(R.id.checkBoxSps)).isChecked());
+        mLeDeviceListAdapter.setMeshFilter(((CheckBox) findViewById(R.id.checkBoxMesh)).isChecked());
+
         setListAdapter(mLeDeviceListAdapter);
     }
 
@@ -165,6 +227,44 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
         invalidateOptionsMenu();
     }
 
+    private void showMeshDialog(BluetoothPeripheral andJoin) {
+        if (!DEFINE_MESH_ACTIVE) return;
+
+        boolean doJoin = andJoin != null;
+        boolean doSkipDialog = doJoin && hasMatchingKey(andJoin);
+
+        if (doSkipDialog) {
+            joinMesh(andJoin);
+            return;
+        }
+
+        String acceptText = doJoin ? "Join" : "Set";
+        KeyEntryFragment dialog = new KeyEntryFragment();
+        dialog.setDefaultKeys(DEFAULT_NET_KEY, DEFAULT_APP_KEY);
+        dialog.setAcceptKeys(acceptText, (netKey, appKey) -> {
+            currentNetKey = netKey;
+            currentAppKey = appKey;
+            currentNetworkId = calculateK3(netKey);
+
+            if (!doJoin) return;
+            joinMesh(andJoin);
+        });
+        dialog.show(getFragmentManager(), "KeyEntry");
+    }
+
+    private boolean hasMatchingKey(BluetoothPeripheral peripheral) {
+        byte[] serviceData = peripheral.serviceDataFor(MESH_SERVICE);
+        return serviceData.length > 8 && serviceData[0] == 0 && Arrays.equals(currentNetworkId, Arrays.copyOfRange(serviceData, 1, serviceData.length));
+    }
+
+    private void joinMesh(BluetoothPeripheral peripheral) {
+        Intent intent = new Intent(this, MeshActivity.class);
+        intent.putExtra(EXTRA_DEVICE, peripheral);
+        intent.putExtra(EXTRA_NET_KEY, currentNetKey);
+        intent.putExtra(EXTRA_APP_KEY, currentAppKey);
+        startActivity(intent);
+    }
+
     @TargetApi(23)
     private void verifyPermissionAndScan() {
         if (ContextCompat.checkSelfPermission(this, ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
@@ -188,15 +288,17 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
     @Override
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         if(mLeDeviceListAdapter.getCount() > position) {
-            Log.d(TAG, "onListItemClick");
-            BluetoothDeviceRepresentation device = mLeDeviceListAdapter.getDevice(position);
-
             scanner.stop();
+            BluetoothPeripheral device = mLeDeviceListAdapter.getDevice(position);
 
-            Intent intent = new Intent(this, MainActivity.class);
-            Log.w(TAG, "Putting " + EXTRA_DEVICE + " " + String.valueOf(device == null));
-            intent.putExtra(EXTRA_DEVICE, device);
-            startActivity(intent);
+            if (DEFINE_MESH_ACTIVE && device.advertisedService(MESH_SERVICE)) {
+                showMeshDialog(device);
+            } else {
+                Intent intent = new Intent(this, MainActivity.class);
+                intent.putExtra(EXTRA_DEVICE, ((BluetoothDevice) device).toUbloxDevice());
+                startActivity(intent);
+            }
+
         }
     }
 
@@ -207,55 +309,73 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
 
     @Override
     public void centralFoundPeripheral(BluetoothCentral central, BluetoothPeripheral peripheral) {
-        runOnUiThread(() -> mLeDeviceListAdapter.addDevice(((com.ublox.BLE.bluetooth.BluetoothDevice) peripheral).toUbloxDevice(), peripheral.rssi()));
+        runOnUiThread(() -> mLeDeviceListAdapter.addDevice(peripheral));
     }
 
     // Adapter for holding devices found through scanning.
     private class LeDeviceListAdapter extends BaseAdapter {
-        private ArrayList<BluetoothDeviceRepresentation> mLeDevices;
+        private ArrayList<BluetoothPeripheral> mFilteredSortedPeripherals;
+        private HashMap<BluetoothPeripheral, Integer> mPeripheralsStaticRssi;
         private LayoutInflater mInflator;
-
-        private HashMap<BluetoothDeviceRepresentation, Integer> mDevicesRssi = new HashMap<>();
+        private String mFreeTextFilter;
+        private boolean mSpsFilter;
+        private boolean mMeshFilter;
 
         public LeDeviceListAdapter() {
             super();
-            mLeDevices = new ArrayList<>();
+            mFilteredSortedPeripherals = new ArrayList<>();
+            mPeripheralsStaticRssi = new HashMap<>();
             mInflator = DevicesActivity.this.getLayoutInflater();
+            mFreeTextFilter = "";
         }
 
-        public void addDevice(BluetoothDeviceRepresentation device, int rssi) {
-            if (mDevicesRssi.containsKey(device)) {
-                int oldRssi = mDevicesRssi.get(device);
-                if (Math.abs(oldRssi - rssi) > 10) {
-                    mDevicesRssi.put(device, rssi);
-                    notifyDataSetChanged();
-                }
-            } else {
-                mDevicesRssi.put(device, rssi);
-                notifyDataSetChanged();
-            }
-            if (!mLeDevices.contains(device)) {
-                mLeDevices.add(device);
-                notifyDataSetChanged();
-            }
+        public void setFreeTextFilter(String filter) {
+            if (mFreeTextFilter.equalsIgnoreCase(filter)) return;
+            mFreeTextFilter = filter != null ? filter : "";
+            reFilter();
         }
 
-        public BluetoothDeviceRepresentation getDevice(int position) {
-            return mLeDevices.get(position);
+        public void setSpsFilter(boolean spsFilter) {
+            if (mSpsFilter == spsFilter) return;
+            mSpsFilter = spsFilter;
+            reFilter();
+        }
+
+        public void setMeshFilter(boolean meshFilter) {
+            if (mMeshFilter == meshFilter) return;
+            mMeshFilter = meshFilter;
+            reFilter();
+        }
+
+        public void addDevice(BluetoothPeripheral device) {
+            int rssi = device.rssi();
+            if (mPeripheralsStaticRssi.containsKey(device) && Math.abs(mPeripheralsStaticRssi.get(device) - rssi) <= 10) {
+                return;
+            }
+
+            mPeripheralsStaticRssi.put(device, rssi);
+
+            reFilter();
+        }
+
+        public BluetoothPeripheral getDevice(int position) {
+            return mFilteredSortedPeripherals.get(position);
         }
 
         public void clear() {
-            mLeDevices.clear();
+            mFilteredSortedPeripherals.clear();
+            mPeripheralsStaticRssi.clear();
+            notifyDataSetChanged();
         }
 
         @Override
         public int getCount() {
-            return mLeDevices.size();
+            return mFilteredSortedPeripherals.size();
         }
 
         @Override
         public Object getItem(int i) {
-            return mLeDevices.get(i);
+            return mFilteredSortedPeripherals.get(i);
         }
 
         @Override
@@ -265,7 +385,7 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
 
         @Override
         public View getView(final int i, View view, ViewGroup viewGroup) {
-            BluetoothDeviceRepresentation device = mLeDevices.get(i);
+            BluetoothPeripheral device = mFilteredSortedPeripherals.get(i);
             ViewHolder viewHolder;
             // General ListView optimization code.
             if (view == null) {
@@ -276,6 +396,7 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
                 viewHolder.deviceAddress = view.findViewById(R.id.device_address);
                 viewHolder.deviceBonded = view.findViewById(R.id.device_bonded);
                 viewHolder.imgRssi = view.findViewById(R.id.img_rssi);
+                viewHolder.deviceMeshProxy = view.findViewById(R.id.tvMesh);
                 view.setTag(viewHolder);
             } else {
                 viewHolder = (ViewHolder) view.getTag();
@@ -284,8 +405,8 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             final View finalView = view;
             view.setOnClickListener(v -> onItemClick(null, finalView, i, i));
 
-            final String deviceName = device.getName();
-            final String deviceAddress = device.getAddress();
+            final String deviceName = device.name();
+            final String deviceAddress = device.identifier();
             if (deviceName != null && deviceName.length() > 0) {
                 viewHolder.deviceName.setText(deviceName);
                 viewHolder.deviceName.setVisibility(View.VISIBLE);
@@ -295,6 +416,9 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
                 viewHolder.deviceName.setVisibility(View.INVISIBLE);
                 //viewHolder.deviceAddress.setTypeface(null, Typeface.BOLD);
             }
+            if (DEFINE_MESH_ACTIVE) {
+                viewHolder.deviceMeshProxy.setVisibility(device.advertisedService(MESH_SERVICE) ? View.VISIBLE : View.INVISIBLE);
+            }
             viewHolder.deviceAddress.setText(deviceAddress);
             updateBondedStateComponents(device, viewHolder);
             updateRssiComponents(device, viewHolder);
@@ -302,8 +426,38 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             return view;
         }
 
-        private void updateBondedStateComponents(BluetoothDeviceRepresentation device, ViewHolder viewHolder) {
-            switch(device.getBondState()) {
+        private boolean peripheralMatchesFilter(BluetoothPeripheral peripheral) {
+            if (!mMeshFilter || peripheral.advertisedService(MESH_SERVICE))
+                if (!mSpsFilter || peripheral.advertisedService(SPS_SERVICE))
+                    return containsFilterIgnoreCase(peripheral.name()) ||
+                        containsFilterIgnoreCase(peripheral.identifier());
+
+            return false;
+        }
+
+        private boolean containsFilterIgnoreCase(String search) {
+            if (search == null) return false;
+            search = search.toLowerCase();
+            String pattern = mFreeTextFilter.toLowerCase();
+            return search.contains(pattern);
+        }
+
+        private void reFilter() {
+            ArrayList<BluetoothPeripheral> filtered = new ArrayList<>();
+            for (BluetoothPeripheral peripheral: mPeripheralsStaticRssi.keySet()) {
+                if (peripheralMatchesFilter(peripheral)) {
+                    filtered.add(peripheral);
+                }
+            }
+
+            Collections.sort(filtered, (a, b) -> mPeripheralsStaticRssi.get(b) - mPeripheralsStaticRssi.get(a));
+            if (filtered.equals(mFilteredSortedPeripherals)) return;
+            mFilteredSortedPeripherals = filtered;
+            notifyDataSetChanged();
+        }
+
+        private void updateBondedStateComponents(BluetoothPeripheral device, ViewHolder viewHolder) {
+            switch(device.bondState()) {
                 case BOND_NONE:
                     viewHolder.deviceBonded.setVisibility(View.INVISIBLE);
                     break;
@@ -318,8 +472,8 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             }
         }
 
-        private void updateRssiComponents(BluetoothDeviceRepresentation device, ViewHolder viewHolder) {
-            final int rssi = mDevicesRssi.get(device);
+        private void updateRssiComponents(BluetoothPeripheral device, ViewHolder viewHolder) {
+            final int rssi = mPeripheralsStaticRssi.get(device);
             viewHolder.deviceRssi.setText(String.format("%s dBm", String.valueOf(rssi)));
             if(rssi <= -100) {
                 viewHolder.imgRssi.setImageResource(R.drawable.signal_indicator_0);
@@ -342,5 +496,6 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
         TextView deviceName;
         TextView deviceAddress;
         TextView deviceBonded;
+        TextView deviceMeshProxy;
     }
 }

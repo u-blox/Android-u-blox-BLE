@@ -1,12 +1,11 @@
 package com.ublox.BLE;
 
-import com.ublox.BLE.interfaces.BluetoothDeviceRepresentation;
-
 import android.app.Activity;
-import android.support.test.espresso.ViewAction;
 import android.support.test.espresso.ViewAssertion;
 import android.support.test.espresso.ViewInteraction;
 import android.support.test.espresso.matcher.BoundedMatcher;
+
+import com.ublox.BLE.bluetooth.BluetoothPeripheral;
 
 import org.hamcrest.Description;
 import org.hamcrest.TypeSafeMatcher;
@@ -20,8 +19,8 @@ import static org.hamcrest.Matchers.not;
 
 public class EspressoExtensions {
 
-    public static TypeSafeMatcher<BluetoothDeviceRepresentation> withDevice(final String address) {
-        return new TypeSafeMatcher<BluetoothDeviceRepresentation>() {
+    public static TypeSafeMatcher<BluetoothPeripheral> withDevice(final String address) {
+        return new TypeSafeMatcher<BluetoothPeripheral>() {
 
             @Override
             public void describeTo(Description description) {
@@ -29,8 +28,8 @@ public class EspressoExtensions {
             }
 
             @Override
-            protected boolean matchesSafely(BluetoothDeviceRepresentation item) {
-                return address.equals(item.getAddress());
+            protected boolean matchesSafely(BluetoothPeripheral peripheral) {
+                return address.equals(peripheral.identifier());
             }
         };
     }

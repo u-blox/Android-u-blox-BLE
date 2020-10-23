@@ -28,7 +28,6 @@ import static org.hamcrest.Matchers.not;
 
 @RunWith(AndroidJUnit4.class)
 public class TestTestFragment {
-    DeviceConnectionIdler connected;
 
     @Rule
     public ActivityTestRule<MainActivity> act = new MainWithBluetoothTestRule();

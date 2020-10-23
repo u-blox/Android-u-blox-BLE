@@ -78,7 +78,7 @@ public class ChatFragment extends Fragment {
             mListener = (IChatInteractionListener) activity;
         } catch (ClassCastException e) {
             throw new ClassCastException(activity.toString()
-                    + " must implement OnFragmentInteractionListener");
+                    + " must implement MeshListInterface");
         }
     }
 

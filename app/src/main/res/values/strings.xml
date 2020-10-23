@@ -58,5 +58,20 @@
     </string-array>
     <string name="location_permission_toast">Location required to scan for low energy devices!</string>
     <string name="send_with_cr">Send CR</string>
+    <string name="mesh_proxy">Mesh Proxy</string>
+    <string name="title_activity_mesh">MeshActivity</string>
 
+    <string name="filterTextHint">Filter</string>
+    <string name="checkBoxSpsText">SPS</string>
+    <string name="checkBoxMeshText">Mesh</string>
+
+    <string name="keyDialogText">Enter Mesh Keys</string>
+    <string name="networkKeyText">Network Key</string>
+    <string name="applicationKeyText">Application Key</string>
+
+    <string name="joinMeshButton">Join Mesh Network</string>
+
+    <string name="reconnectMeshButton">Reconnect</string>
+    <string name="closeMeshButton">Back to Scan</string>
+    <string name="connectionDropDescription">The connection to proxy was unexpectedly closed! Click Reconnect to attempt to re-join the netowork or click Back to Scan to look for a new proxy.</string>
 </resources>
