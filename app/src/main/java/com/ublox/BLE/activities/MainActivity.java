@@ -61,6 +61,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
 
     private boolean needToWaitForMtuUpdate = false;
     private boolean isFirstTimeToSetFifo = true;
+    private boolean mRestoreConnectionOnResume = true;
 
     private TextView tvStatus;
     private RelativeLayout rlProgress;
@@ -348,29 +349,38 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
+    protected void onStart() {
+        super.onStart();
+
         if (mBluetoothLeService != null) {
             mBluetoothLeService.register(mGattUpdateReceiver);
-            final boolean result = mBluetoothLeService.connect(mDevice);
-            Log.d(TAG, "Connect request result=" + result);
-            mConnectionState = ConnectionState.CONNECTING;
-            invalidateOptionsMenu();
-            updateStatus();
-            rlProgress.setVisibility(View.VISIBLE);
         }
-        invalidateOptionsMenu();
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
+    protected void onDestroy() {
+        super.onDestroy();
         try {
             mBluetoothLeService.disconnect();
             mBluetoothLeService.close();
             mConnectionState = ConnectionState.DISCONNECTED;
             mBluetoothLeService.unregister();
-        } catch (Exception ignore) {}
+        } catch (Exception ignored){}
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (mConnectionState != ConnectionState.CONNECTED && mRestoreConnectionOnResume) {
+            boolean connectionStart = mBluetoothLeService.connect(mDevice);
+            mConnectionState = connectionStart
+                ? ConnectionState.CONNECTING
+                : ConnectionState.DISCONNECTED;
+            rlProgress.setVisibility(connectionStart ? View.VISIBLE : View.INVISIBLE);
+            updateStatus();
+        }
+
         invalidateOptionsMenu();
     }
 
@@ -499,6 +509,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
     public boolean onOptionsItemSelected(MenuItem item) {
         switch(item.getItemId()) {
             case R.id.menu_connect:
+                mRestoreConnectionOnResume = true;
                 mBluetoothLeService.connect(mDevice);
                 mConnectionState = ConnectionState.CONNECTING;
                 invalidateOptionsMenu();
@@ -506,6 +517,7 @@ public class MainActivity extends Activity implements ActionBar.TabListener,
                 rlProgress.setVisibility(View.VISIBLE);
                 return true;
             case R.id.menu_disconnect:
+                mRestoreConnectionOnResume = false;
                 mBluetoothLeService.disconnect();
                 updateStatus();
                 rlProgress.setVisibility(View.VISIBLE);

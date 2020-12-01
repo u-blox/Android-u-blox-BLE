@@ -29,33 +29,38 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
 
     public BluetoothScanner(BluetoothAdapter adapter) {
         this.adapter = adapter;
-        if (!usingDeprecated()) {
-            scanner = adapter.getBluetoothLeScanner();
-            callback = new ScanCallback() {
-                @Override
-                public void onScanResult(int callbackType, ScanResult result) {
-                    Map<UUID, byte[]> services = new HashMap<>();
-                    List<ParcelUuid> serviceUuids = result.getScanRecord().getServiceUuids();
-                    if (serviceUuids != null) {
-                        for (ParcelUuid puuid : serviceUuids) {
-                            services.put(puuid.getUuid(), new byte[0]);
-                        }
-                    }
-                    Map<ParcelUuid, byte[]> serviceData = result.getScanRecord().getServiceData();
-                    for (ParcelUuid puuid : serviceData.keySet()) {
-                        services.put(puuid.getUuid(),serviceData.get(puuid));
-                    }
-                    onPeripheralScan(result.getDevice(), result.getRssi(), services);
-                }
-
-                @Override
-                public void onScanFailed(int errorCode) {
-                    setState(State.ON);
-                }
-            };
-        }
         state = State.ON;
         foundPeripherals = new ArrayList<>();
+    }
+
+    @TargetApi(21)
+    private BluetoothLeScanner Scanner() {
+        if (scanner != null) return scanner;
+
+        scanner = adapter.getBluetoothLeScanner();
+        callback = new ScanCallback() {
+            @Override
+            public void onScanResult(int callbackType, ScanResult result) {
+                Map<UUID, byte[]> services = new HashMap<>();
+                List<ParcelUuid> serviceUuids = result.getScanRecord().getServiceUuids();
+                if (serviceUuids != null) {
+                    for (ParcelUuid puuid : serviceUuids) {
+                        services.put(puuid.getUuid(), new byte[0]);
+                    }
+                }
+                Map<ParcelUuid, byte[]> serviceData = result.getScanRecord().getServiceData();
+                for (ParcelUuid puuid : serviceData.keySet()) {
+                    services.put(puuid.getUuid(),serviceData.get(puuid));
+                }
+                onPeripheralScan(result.getDevice(), result.getRssi(), services);
+            }
+
+            @Override
+            public void onScanFailed(int errorCode) {
+                setState(State.ON);
+            }
+        };
+        return scanner;
     }
 
     @Override
@@ -85,7 +90,7 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
         } else {
             ScanSettings.Builder settings = new ScanSettings.Builder();
             if (notLegacy()) settings.setLegacy(false);
-            scanner.startScan(filtersFrom(withServices), settings.build(), callback);
+            Scanner().startScan(filtersFrom(withServices), settings.build(), callback);
             setState(State.SCANNING);
         }
     }
@@ -107,7 +112,7 @@ public class BluetoothScanner implements BluetoothCentral, BluetoothAdapter.LeSc
         if (usingDeprecated()) {
             adapter.stopLeScan(this);
         } else {
-            scanner.stopScan(callback);
+            Scanner().stopScan(callback);
         }
         setState(State.ON);
     }

@@ -1,14 +1,14 @@
 <resources>
-    <string name="app_name">u-blox BLE</string>
+    <string name="app_name">u-blox Bluetooth Low Energy</string>
 
-    <string name="ble_not_supported">BLE is not supported</string>
+    <string name="ble_not_supported">Bluetooth Low Energy is not supported</string>
     <string name="label_data">Data:</string>
     <string name="label_device_address">Device address:</string>
     <string name="label_state">State:</string>
     <string name="no_data">No data</string>
     <string name="connected">Connected</string>
     <string name="disconnected">Disconnected</string>
-    <string name="error_bluetooth_not_supported">Bluetooth not supported.</string>
+    <string name="error_bluetooth_not_supported">Bluetooth is not supported.</string>
 
     <string name="unknown_device">Unknown device</string>
     <string name="unknown_characteristic">Unknown characteristic</string>
@@ -27,7 +27,7 @@
     <string name="title_section4">Test</string>"
 
     <string name="overview_temperature">Temperature (°C)</string>
-    <string name="title_activity_basic_ble">BasicBLEActivity</string>
+    <string name="title_activity_basic_ble">BasicBluetoothLowEnergyActivity</string>
 
     <string name="hello_world">Hello world!</string>
     <string name="action_settings">Settings</string>

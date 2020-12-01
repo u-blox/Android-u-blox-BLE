@@ -4,14 +4,14 @@ android {
     signingConfigs {
 
     }
-    compileSdkVersion 28
+    compileSdkVersion 29
     buildToolsVersion '26.0.3'
     defaultConfig {
         applicationId "com.ublox.BLE"
         minSdkVersion 18
-        targetSdkVersion 28
-        versionCode 18
-        versionName "2.9.0"
+        targetSdkVersion 29
+        versionCode 19
+        versionName "2.9.1"
         vectorDrawables.useSupportLibrary = true
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
