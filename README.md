@@ -7,7 +7,7 @@ https://www.u-blox.com/
 
 # 
 
-These files are all working with Android Studio 4.1 and with SDK version 29.
+These files are all working with Android Studio 4.2.2 and with SDK version 29 (Android 10).
 
 Needed files to get Bluetooth low energy working in your app:  
 ```
