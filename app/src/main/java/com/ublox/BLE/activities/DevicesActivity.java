@@ -40,7 +40,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.UUID;
 
-import static android.Manifest.permission.ACCESS_COARSE_LOCATION;
+import static android.Manifest.permission.ACCESS_FINE_LOCATION;
 import static android.bluetooth.BluetoothDevice.BOND_BONDED;
 import static android.bluetooth.BluetoothDevice.BOND_BONDING;
 import static android.bluetooth.BluetoothDevice.BOND_NONE;
@@ -267,10 +267,10 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
 
     @TargetApi(23)
     private void verifyPermissionAndScan() {
-        if (ContextCompat.checkSelfPermission(this, ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
             scanner.scan(new ArrayList<>());
         } else {
-            requestPermissions(new String[] {ACCESS_COARSE_LOCATION}, LOCATION_REQUEST);
+            requestPermissions(new String[] {ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
         }
     }
 
