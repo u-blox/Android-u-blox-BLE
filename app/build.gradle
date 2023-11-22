@@ -9,8 +9,8 @@ android {
         applicationId "com.ublox.BLE"
         minSdkVersion 18
         targetSdkVersion 33
-        versionCode 20
-        versionName "2.9.2"
+        versionCode 21
+        versionName "2.9.3"
         vectorDrawables.useSupportLibrary = true
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
@@ -19,6 +19,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
         }
         debug {
         }

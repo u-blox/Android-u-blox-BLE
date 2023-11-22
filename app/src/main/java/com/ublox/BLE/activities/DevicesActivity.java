@@ -1,5 +1,6 @@
 package com.ublox.BLE.activities;
 
+import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -8,7 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Bundle;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -41,6 +44,8 @@ import java.util.HashMap;
 import java.util.UUID;
 
 import static android.Manifest.permission.ACCESS_FINE_LOCATION;
+import static android.Manifest.permission.BLUETOOTH_SCAN;
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
 import static android.bluetooth.BluetoothDevice.BOND_BONDED;
 import static android.bluetooth.BluetoothDevice.BOND_BONDING;
 import static android.bluetooth.BluetoothDevice.BOND_NONE;
@@ -58,8 +63,11 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
     private static final UUID SPS_SERVICE = UUID.fromString(GattAttributes.UUID_SERVICE_SERIAL_PORT);
     private static final UUID MESH_SERVICE = UUID.fromString(GattAttributes.UUID_SERVICE_MESH_PROXY);
     private static final int LOCATION_REQUEST = 255;
-    private static final byte[] DEFAULT_NET_KEY = { 0x5F, 0x5F, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x50};
-    private static final byte[] DEFAULT_APP_KEY = { 0x5F, 0x11, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x5F};
+    private static final int BLUETOOTH_CONNECT_REQUEST = 103;
+    private static final int BLUETOOTH_SCAN_REQUEST = 102;
+    private static final int BLUETOOTH_ENABLE_REQUEST = 101;
+    private static final byte[] DEFAULT_NET_KEY = {0x5F, 0x5F, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x50};
+    private static final byte[] DEFAULT_APP_KEY = {0x5F, 0x11, 0x6E, 0x6F, 0x72, 0x64, 0x69, 0x63, 0x5F, 0x5F, 0x73, 0x65, 0x6D, 0x69, 0x5F, 0x5F};
 
     private LeDeviceListAdapter mLeDeviceListAdapter;
     private BluetoothAdapter mBluetoothAdapter;
@@ -180,9 +188,11 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
         // Ensures Bluetooth is enabled on the device.  If Bluetooth is not currently enabled,
         // fire an intent to display a dialog asking the user to grant permission to enable it.
         if (!mBluetoothAdapter.isEnabled()) {
-            if (!mBluetoothAdapter.isEnabled()) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ContextCompat.checkSelfPermission(this, BLUETOOTH_CONNECT) == PERMISSION_GRANTED) {
                 Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                 startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+            } else {
+                requestPermissions(new String[] { BLUETOOTH_CONNECT }, BLUETOOTH_ENABLE_REQUEST);
             }
         }
 
@@ -267,21 +277,60 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
 
     @TargetApi(23)
     private void verifyPermissionAndScan() {
-        if (ContextCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
+        String[] request = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                ? new String[] {BLUETOOTH_SCAN, BLUETOOTH_CONNECT}
+                : new String[] {ACCESS_FINE_LOCATION};
+        int requestCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                ? BLUETOOTH_SCAN_REQUEST
+                : LOCATION_REQUEST;
+
+        if (ContextCompat.checkSelfPermission(this, request[0]) == PERMISSION_GRANTED) {
             scanner.scan(new ArrayList<>());
         } else {
-            requestPermissions(new String[] {ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
+            requestPermissions(request, requestCode);
         }
     }
 
     @Override
     public void onRequestPermissionsResult (int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode != LOCATION_REQUEST) return;
+        if (requestCode == LOCATION_REQUEST || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && requestCode == BLUETOOTH_SCAN_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PERMISSION_GRANTED) {
+                scanner.scan(new ArrayList<>());
+            } else {
+                int messageID = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? R.string.scan_permission_toast
+                    : R.string.location_permission_toast;
+                Toast.makeText(this, messageID, Toast.LENGTH_LONG).show();
+            }
+        }
 
-        if (grantResults.length > 0 && grantResults[0] == PERMISSION_GRANTED) {
-            scanner.scan(new ArrayList<>());
-        } else {
-            Toast.makeText(this, R.string.location_permission_toast, Toast.LENGTH_LONG).show();
+        if (requestCode == LOCATION_REQUEST || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && requestCode == BLUETOOTH_SCAN_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PERMISSION_GRANTED) {
+                scanner.scan(new ArrayList<>());
+            } else {
+                int messageID = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                        ? R.string.scan_permission_toast
+                        : R.string.location_permission_toast;
+                Toast.makeText(this, messageID, Toast.LENGTH_LONG).show();
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && requestCode == BLUETOOTH_ENABLE_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PERMISSION_GRANTED) {
+                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+            } else {
+                Toast.makeText(this, R.string.enable_permission_toast, Toast.LENGTH_LONG).show();
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && requestCode == BLUETOOTH_CONNECT_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PERMISSION_GRANTED) {
+                //TODO automatically connect
+                Toast.makeText(this, R.string.connect_retry_toast, Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, R.string.connect_permission_toast, Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -291,14 +340,17 @@ public class DevicesActivity extends Activity implements AdapterView.OnItemClick
             scanner.stop();
             BluetoothPeripheral device = mLeDeviceListAdapter.getDevice(position);
 
-            if (DEFINE_MESH_ACTIVE && device.advertisedService(MESH_SERVICE)) {
-                showMeshDialog(device);
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ContextCompat.checkSelfPermission(this, BLUETOOTH_CONNECT) == PERMISSION_GRANTED) {
+                if (DEFINE_MESH_ACTIVE && device.advertisedService(MESH_SERVICE)) {
+                    showMeshDialog(device);
+                } else {
+                    Intent intent = new Intent(this, MainActivity.class);
+                    intent.putExtra(EXTRA_DEVICE, ((BluetoothDevice) device).toUbloxDevice());
+                    startActivity(intent);
+                }
             } else {
-                Intent intent = new Intent(this, MainActivity.class);
-                intent.putExtra(EXTRA_DEVICE, ((BluetoothDevice) device).toUbloxDevice());
-                startActivity(intent);
+                requestPermissions(new String[] { BLUETOOTH_CONNECT }, BLUETOOTH_CONNECT_REQUEST);
             }
-
         }
     }
 

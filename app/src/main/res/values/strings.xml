@@ -57,6 +57,10 @@
         <item>LOW POWER</item>
     </string-array>
     <string name="location_permission_toast">Location required to scan for low energy devices!</string>
+    <string name="scan_permission_toast">Scan required to scan for low energy devices!</string>
+    <string name="connect_permission_toast">Connect required to connect low energy devices!</string>
+    <string name="enable_permission_toast">Connect required to enable Bluetooth!</string>
+    <string name="connect_retry_toast">Permission granted! Please retry connecting.</string>
     <string name="send_with_cr">Send CR</string>
     <string name="mesh_proxy">Mesh Proxy</string>
     <string name="title_activity_mesh">MeshActivity</string>
